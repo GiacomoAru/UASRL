@@ -6,33 +6,35 @@ cuda: true
 torch_deterministic: true
 total_timesteps: 50000
 
-# --- RETI NEURALI (ARCHITETTURA) ---
+# --- RETI NEURALI ---
 # Liste di interi che definiscono i nodi per ogni livello nascosto
-actor_network_layers: [128, 128, 128]
-q_network_layers: [128, 128, 128]
-q_ensemble_n: 5  # Numero di reti Q nell'ensemble
+input_stack : 4
+actor_network_layers: [256, 256]
+q_network_layers: [256, 256]
+q_ensemble_n: 3  # Numero di reti Q nell'ensemble
+bootstrap: false
 
-# --- LEARNING RATES (VELOCITÀ DI APPRENDIMENTO) ---
+# --- LEARNING RATES ---
 policy_lr: 0.0004
 q_lr: 0.0004
 alpha_lr: 0.0004
 
 # --- PARAMETRI BUFFER E BATCH ---
-buffer_size: 120000
+buffer_size: 500000
 batch_size: 256
 bootstrap_batch_proportion: 0.8
 learning_starts: 1000  # Passi casuali iniziali
 
 # --- IPERPARAMETRI RL ---
-gamma: 0.995           # Discount factor
+gamma: 0.995           # Discount factor  
 tau: 0.005             # Soft update per target networks
 alpha: 1.0             # Coefficiente entropia iniziale
 autotune: true         # Tuning automatico di alpha
-noise_clip: 0.5
+noise_clip: 0.2
 
 # --- AGGIORNAMENTI E FREQUENZE ---
 update_per_step: 1           # Quanti gradient updates per step ambientale
-policy_frequency: 4          # Ogni quanti step aggiornare la policy
+policy_frequency : 4         # Ogni quanti step gradiente aggiornare la policy
 target_network_frequency: 1  # Ogni quanti step aggiornare la target net
 
 # --- LOGGING E METRICHE ---

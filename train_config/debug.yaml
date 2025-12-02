@@ -1,0 +1,44 @@
+# --- CONFIGURAZIONE ESPERIMENTO ---
+exp_name: "base+wp"
+env_id: "std"
+seed: 61045
+cuda: true
+torch_deterministic: true
+total_timesteps: 100000
+
+# --- RETI NEURALI ---
+# Liste di interi che definiscono i nodi per ogni livello nascosto
+input_stack : 6
+actor_network_layers: [16, 16, 16, 16]
+q_network_layers: [16, 16, 16, 16]
+q_ensemble_n: 6  # Numero di reti Q nell'ensemble
+bootstrap: true  # Se usare il bootstrap nell'ensemble Q
+
+# --- LEARNING RATES ---
+policy_lr: 0.0004
+q_lr: 0.0004
+alpha_lr: 0.0004
+
+# --- PARAMETRI BUFFER E BATCH ---
+buffer_size: 10000
+batch_size: 128
+bootstrap_batch_proportion: 0.85
+learning_starts: 25  # Passi casuali iniziali
+
+# --- IPERPARAMETRI RL ---
+gamma: 0.995           # Discount factor  
+tau: 0.01             # Soft update per target networks
+alpha: 1.0             # Coefficiente entropia iniziale
+autotune: true         # Tuning automatico di alpha
+noise_clip: 0.1
+reward_scale: 0.001
+
+# --- AGGIORNAMENTI E FREQUENZE ---
+update_per_step: 2           # Quanti gradient updates per step ambientale
+policy_frequency : 2          # Ogni quanti step gradiente aggiornare la policy
+target_network_frequency: 2   # Ogni quanti step aggiornare la target net
+
+# --- LOGGING E METRICHE ---
+loss_log_interval: 100
+metrics_log_interval: 300
+metrics_smoothing: 0.985
