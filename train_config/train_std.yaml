@@ -16,8 +16,8 @@ total_timesteps: 1000000
 
 # --- LOGGING E METRICHE ---
 loss_log_interval: 100
-metrics_log_interval: 250
-metrics_smoothing: 0.985
+metrics_log_interval: 100
+metrics_smoothing: 0.985 # circa ultimi 25 episodi
 
 ##############################################################################
 
