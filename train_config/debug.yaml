@@ -34,11 +34,11 @@ noise_clip: 0.1
 reward_scale: 0.001
 
 # --- AGGIORNAMENTI E FREQUENZE ---
-update_per_step: 2           # Quanti gradient updates per step ambientale
-policy_frequency : 2          # Ogni quanti step gradiente aggiornare la policy
-target_network_frequency: 2   # Ogni quanti step aggiornare la target net
+update_frequency: 2           # Quanti gradient updates per step ambientale
+policy_update_period : 2          # Ogni quanti step gradiente aggiornare la policy
+target_network_update_period: 2   # Ogni quanti step aggiornare la target net
 
 # --- LOGGING E METRICHE ---
-loss_log_interval: 100
-metrics_log_interval: 300
+loss_log_interval: 10
+metrics_log_interval: 10
 metrics_smoothing: 0.985
