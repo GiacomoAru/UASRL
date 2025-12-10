@@ -1,0 +1,18 @@
+# --- AGENT METADATA ---
+behavior_name: NavigationAgent
+team: "0"
+
+# --- RAY SENSOR SETTINGS ---
+rays_per_direction : 10
+rays_min_observation : -1.0
+rays_max_observation : 1.0
+
+# --- STATE SETTINGS ---
+state_observation_size: 10
+state_min_observation: -256.0
+state_max_observation: 256.0
+
+# --- ACTION SETTINGS ---
+action_size : 2
+min_action : -1.0
+max_action : 1.0

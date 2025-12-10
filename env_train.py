@@ -13,7 +13,7 @@ from stable_baselines3.common.buffers import ReplayBuffer
 
 from utils_policy_train import *
 
-CONFIG_PATH = './train_config/debug.yaml'
+CONFIG_PATH = './train_config/train_std.yaml'
 BASE_TIME = 1765283466
 print(f'Config path: {CONFIG_PATH}')
 
@@ -21,11 +21,25 @@ print(f'Config path: {CONFIG_PATH}')
 #  Args
 
 args = parse_config(CONFIG_PATH)
+args = argparse.Namespace(**args)
+agent_config = parse_config(args.agent_config_path)
+obstacles_config = parse_config(args.obstacles_config_path)
+other_config = parse_config(args.other_config_path)
+
 args.seed = random.randint(0, 2**16)
 # args.name = generate_funny_name()
 
 print('Training with the following parameters:')
 pprint(vars(args))
+
+print('agent_config:')
+pprint(agent_config)
+
+print('obstacles_config:')
+pprint(obstacles_config)
+
+print('other_config:')
+pprint(other_config)
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(f"Using device: {DEVICE}")
@@ -43,19 +57,26 @@ print(f'Seed: {args.seed}')
 # [markdown]
 #  Start Environment
 
+
 # Create the channel
 env_info = CustomChannel()
 param_channel = EnvironmentParametersChannel()
 
+print('Applying Unity settings from config...')
+apply_unity_settings(param_channel, agent_config, 'ag_')
+apply_unity_settings(param_channel, obstacles_config, 'obst_')
+
 # env setup
 print(f'Starting Unity Environment from build: {args.build_path}')
-if args.headless:
+'''if args.headless:
     print('Running in headless mode...')
     env = UnityEnvironment(args.build_path, seed=args.seed, side_channels=[env_info, param_channel], no_graphics=True)
 else:
-    env = UnityEnvironment(args.build_path, seed=args.seed, side_channels=[env_info, param_channel])
+    env = UnityEnvironment(args.build_path, seed=args.seed, side_channels=[env_info, param_channel])'''
+env = UnityEnvironment(None, seed=args.seed, side_channels=[env_info, param_channel])
 print('Unity Environment connected.')
 
+print('Resetting environment...')
 env.reset()
 
 # [markdown]
@@ -65,45 +86,30 @@ run_name = f"{args.exp_name}_{int(time.time()) - BASE_TIME}"
 args.full_name = run_name
 print(f"Run name: {run_name}")
 
-def write_dict(writer, d, name):
-    if type(d) is not dict:
-        d = vars(args)
-        
-    writer.add_text(
-        name,
-        "|param|value|\n|-|-|\n%s" % ("\n".join([f"|{key}|{d[key]}|" for key in d])),
-    )
-    
 # writer to track performance  
 print('Setting up TensorBoard writer...')
 writer = SummaryWriter(f"train/{run_name}")
 write_dict(writer, args, 'config')
-for key in env_info.settings:
-    write_dict(writer, env_info.settings[key], key)
+write_dict(writer, agent_config, 'agent_config')
+write_dict(writer, obstacles_config, 'obstacles_config')
+write_dict(writer, other_config, 'other_config')
 
-print('Received environment settings:')
-pprint(env_info.settings)
+other_config
 
-if env_info.settings['ray_sensor_settings']['observation_stacks'] > 1:
-    raise ValueError('ERRORE RAYCAST STACK > 1')
+BEHAVIOUR_NAME = other_config['behavior_name'] + '?team=' + other_config['team']
 
-if env_info.settings['behaviour_parameters_settings']['stacked_vector'] > 1:
-    raise ValueError('ERRORE OBSERVATION STACK > 1')
-
-BEHAVIOUR_NAME = env_info.settings['behaviour_parameters_settings']['behavior_name'] + '?team=0'
-
-RAY_PER_DIRECTION = env_info.settings['ray_sensor_settings']['rays_per_direction']
-RAYCAST_MIN = env_info.settings['ray_sensor_settings']['min_observation']
-RAYCAST_MAX = env_info.settings['ray_sensor_settings']['max_observation']
+RAY_PER_DIRECTION = other_config['rays_per_direction']
+RAYCAST_MIN = other_config['rays_min_observation']
+RAYCAST_MAX = other_config['rays_max_observation']
 RAYCAST_SIZE = 2*RAY_PER_DIRECTION + 1
 
-STATE_SIZE = env_info.settings['behaviour_parameters_settings']['observation_size'] - 1
-STATE_MIN = env_info.settings['behaviour_parameters_settings']['min_observation']
-STATE_MAX = env_info.settings['behaviour_parameters_settings']['max_observation']
+STATE_SIZE = other_config['state_observation_size'] - 1
+STATE_MIN = other_config['state_min_observation']
+STATE_MAX = other_config['state_max_observation']
 
-ACTION_SIZE = env_info.settings['behaviour_parameters_settings']['continuous_actions']
-ACTION_MIN = env_info.settings['behaviour_parameters_settings']['min_action']
-ACTION_MAX = env_info.settings['behaviour_parameters_settings']['max_action']
+ACTION_SIZE = other_config['action_size']
+ACTION_MIN = other_config['min_action']
+ACTION_MAX = other_config['max_action']
 
 TOTAL_STATE_SIZE = (STATE_SIZE + RAYCAST_SIZE)*args.input_stack
 

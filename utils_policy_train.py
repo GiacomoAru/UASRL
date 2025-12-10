@@ -161,7 +161,6 @@ class DenseActor(nn.Module):
         
 class CustomChannel(SideChannel):
     
-    settings = {}
     start_msg_queue = []
     stop_msg_queue = []
     
@@ -178,14 +177,8 @@ class CustomChannel(SideChannel):
         
         received = msg.read_string()
         splitted = received.split(self.SEPARATOR_TOKEN)
-        
-        if splitted[0] == self.DATA_TOKEN:
-            data = json.loads(splitted[1])
-            el = data['obj_name']
-            del data['obj_name']
-            
-            self.settings[el] = data
-        elif splitted[0] == self.START_EPISODE_TOKEN:
+
+        if splitted[0] == self.START_EPISODE_TOKEN:
             data = json.loads(splitted[1])
             self.start_msg_queue.append(data)
         elif splitted[0] == self.END_EPISODE_TOKEN:
@@ -335,11 +328,7 @@ def get_initial_action_batch(agent_ids,
 ####################################################################################################
 
 def parse_config(config_path = './config/train.yaml'):
-    """
-    Carica un file YAML e restituisce un oggetto Namespace con tutti i parametri.
-    Non c'è bisogno di definire i nomi manualmente.
-    """
-    
+
     # 1. Controlla se il file esiste
     if not os.path.exists(config_path):
         raise FileNotFoundError(f"File di configurazione non trovato: {config_path}")
@@ -347,19 +336,29 @@ def parse_config(config_path = './config/train.yaml'):
     # 2. Carica il dizionario dal YAML
     with open(config_path, 'r') as f:
         config_dict = yaml.safe_load(f) or {}
+        
+    return config_dict
 
-    # 3. Imposta alcuni default intelligenti se mancano nel file (opzionale)
-    if "exp_name" not in config_dict:
-        config_dict["exp_name"] = os.path.basename(__file__).rstrip(".py")
+def apply_unity_settings(channel, config_dict, label_prefix=''):
 
-    # 4. MAGIA: Convertiamo il dizionario direttamente in argparse.Namespace
-    # L'operatore ** esplode il dizionario in argomenti chiave=valore
-    args = argparse.Namespace(**config_dict)
+    for key, value in config_dict.items():
+        # Unity accetta SOLO float su questo canale.
+        # Convertiamo bool e int, ignoriamo stringhe/liste.
+        if isinstance(value, bool):
+            channel.set_float_parameter(label_prefix + key, 1.0 if value else 0.0)
+        elif isinstance(value, (int, float)):
+            channel.set_float_parameter(label_prefix + key, float(value))
 
-    return args
-
-
-
+def write_dict(writer, d, name):
+    if type(d) is not dict:
+        d = vars(d)
+        
+    writer.add_text(
+        name,
+        "|param|value|\n|-|-|\n%s" % ("\n".join([f"|{key}|{d[key]}|" for key in d])),
+    )
+    
+         
 ####################################################################################################
 ####################################################################################################
 

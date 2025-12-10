@@ -1,0 +1,18 @@
+# --- OBSTACLES SETTINGS ---
+obstacles_total_width : 40
+wall_height : 2
+wall_resolution : 20
+external_walls : true
+
+# --- GENERATION SETTINGS ---
+initial_fill_percentage : 0.42
+smoothing_iterations : 2
+fill_threshold : 6
+clear_threshold : 2
+
+# --- DYNAMIC OBSTACLES SETTINGS ---
+moving_obstacles_count : 0
+
+# --- DEBUG SETTINGS ---
+check_path_try : 10
+debug : false

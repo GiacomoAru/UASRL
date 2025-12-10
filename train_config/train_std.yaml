@@ -2,6 +2,9 @@
 build_path: "./unity_build/4xstd_train/UASRL.exe"
 headless: false
 
+agent_config_path: "./train_config/agent_std.yaml"
+obstacles_config_path: "./train_config/obstacles_std.yaml"
+other_config_path: "./train_config/other_std.yaml"
 
 # --- CONFIGURAZIONE ESPERIMENTO ---
 exp_name: "test_train"
@@ -11,6 +14,12 @@ cuda: true
 torch_deterministic: true
 total_timesteps: 1000000
 
+# --- LOGGING E METRICHE ---
+loss_log_interval: 100
+metrics_log_interval: 250
+metrics_smoothing: 0.985
+
+##############################################################################
 
 # --- RETI NEURALI ---
 input_stack : 4
@@ -18,12 +27,16 @@ actor_network_layers: [256,256]
 q_network_layers: [256,256]
 q_ensemble_n: 3  # Numero di reti Q nell'ensemble
 
-
-# --- LEARNING RATES ---
+# --- IPERPARAMETRI ---
 policy_lr: 0.0003
 q_lr: 0.0003
+gamma: 0.995           # Discount factor  
+tau: 0.01             # Soft update per target networks
+alpha: 1.0             # Coefficiente entropia iniziale
+autotune: true         # Tuning automatico di alpha
 alpha_lr: 0.0001
-
+noise_clip: 0.1
+reward_scale: 0.1
 
 # --- PARAMETRI BUFFER E BATCH ---
 buffer_size: 50000
@@ -32,22 +45,7 @@ learning_starts: 5000  # Passi casuali iniziali
 bootstrap_batch_proportion: 0.85
 bootstrap: false  # Se usare il bootstrap nell'ensemble Q
 
-
-# --- IPERPARAMETRI RL ---
-gamma: 0.995           # Discount factor  
-tau: 0.01             # Soft update per target networks
-alpha: 1.0             # Coefficiente entropia iniziale
-autotune: true         # Tuning automatico di alpha
-noise_clip: 0.1
-reward_scale: 0.1
-
 # --- AGGIORNAMENTI E FREQUENZE ---
 update_frequency: 1            # Quanti gradient updates per step ambientale
 policy_update_period : 4          # Ogni quanti step gradiente aggiornare la policy
 target_network_update_period: 2   # Ogni quanti step aggiornare la target net
-
-
-# --- LOGGING E METRICHE ---
-loss_log_interval: 100
-metrics_log_interval: 250
-metrics_smoothing: 0.985
