@@ -1,0 +1,31 @@
+# --- AGENT SETTINGS ---
+step_after_goal : 10        # Steps to continue after reaching the goal before resetting
+max_step : 1000              # Maximum steps per episode
+
+# --- MOVEMENT SETTINGS ---
+max_movement_speed : 6  # Maximum forward movement speed units/sec
+max_turn_speed : 140      # Maximum rotation speed degrees/sec
+move_smooth_time : 0.1    # Smoothing factor for velocity changes
+
+# --- REWARD SETTINGS ---
+goal_reward : 10        # Reward for reaching the goal
+wall_hit_penalty : 0    # Penalty when hitting walls
+progress_reward : 0.1        # Reward for progress toward goal
+time_penality: 0.002
+action_penality: 0.01
+
+# --- DEBUG SETTINGS ---
+print_debug : false           # Enable debug logging
+print_every_step : 2000          # Frequency of debug prints
+obstacle_test : false         # Enable manual obstacle testing
+ema_debug : false             # Enable EMA visualization
+cbf_debug : false             # Enable CBF visualization
+action_debug : false          # Enable drawing of action arrows
+hud_debug : false             # Enable on-screen HUD debug display
+
+# --- HUD SETTINGS ---
+hudX : 10                    # HUD X position on screen
+hudY : 10                    # HUD Y position on screen
+hudWidth : 320               # HUD width
+hudHeight : 560              # HUD height
+hudScale : 1.0                # HUD text scale factor    
