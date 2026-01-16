@@ -6,6 +6,7 @@
 train/
 models/
 unity_build/
+wandb/
 
 # User-specific files
 *.rsuser
