@@ -40,11 +40,127 @@ import os
 ####################################################################################################
 ####################################################################################################
 
+
+
+
+class OldDenseSoftQNetwork(nn.Module):
+    
+    def __init__(self, 
+                 obs_dim: int,
+                 action_dim: int,
+                 dense_layer: list[int]):
+        
+        super().__init__()
+        
+        self.obs_dim = obs_dim
+        self.action_dim = action_dim
+        self.output_dim = 1
+        
+        dense_layer = [self.obs_dim + self.action_dim] + dense_layer + [self.output_dim]
+        self.layers =  nn.ModuleList()
+        for i, layer in enumerate(dense_layer[:-1]):
+            self.layers.append(nn.Linear(layer, dense_layer[i + 1]))
+        
+    def forward(self, x, a):
+        
+        x = torch.cat([x, a], 1)
+        
+        # for each layer, first the layer and then the activation function
+        for layer in self.layers[:-1]:
+            x = layer(x)
+            x = F.relu(x)
+            
+        # the last layer does not have an activation function
+        x = self.layers[-1](x)
+        
+        return x
+
+class OldDenseActor(nn.Module):
+    
+    LOG_STD_MAX = 2
+    LOG_STD_MIN = -10
+
+    def __init__(self, 
+                 input_dim: int,
+                 output_dim: int,
+                 output_space_min_value: float,
+                 output_space_max_value: float,
+                 dense_layer: list[int]):
+        
+        super().__init__()
+        
+        self.input_dim = input_dim
+        self.output_dim = output_dim
+        
+        dense_layer = [self.input_dim] + dense_layer
+        self.layers = nn.ModuleList()
+        for i, layer in enumerate(dense_layer[:-1]):
+            self.layers.append(nn.Linear(layer, dense_layer[i + 1]))
+        
+        self.mean_layer = nn.Linear(dense_layer[-1], self.output_dim)
+        self.logstd_layer = nn.Linear(dense_layer[-1], self.output_dim)   
+                
+        # action rescaling
+        self.register_buffer(
+            "action_scale", 
+            torch.tensor((output_space_max_value - output_space_min_value) / 2.0, dtype=torch.float32)
+        )
+        self.register_buffer(
+            "action_bias", torch.tensor((output_space_max_value + output_space_min_value) / 2.0, dtype=torch.float32)
+        )
+        
+    def forward(self, x):
+        
+        # for each layer, first the layer and then the activation function
+        for layer in self.layers:
+            x = layer(x)
+            x = F.relu(x)
+
+        mean = self.mean_layer(x)
+        log_std = self.logstd_layer(x)
+        
+        log_std = torch.tanh(log_std)
+        log_std = self.LOG_STD_MIN + 0.5 * (self.LOG_STD_MAX - self.LOG_STD_MIN) * (log_std + 1)  # From SpinUp / Denis Yarats
+
+        return mean, log_std
+
+    def get_action(self, x, std_scale=1.0):
+        mean, log_std = self(x)
+        
+        if std_scale > 0:
+            std = log_std.exp()
+            std = std * std_scale  # redcuce standard deviation with coefficient v
+            
+            normal = torch.distributions.Normal(mean, std)
+            
+            x_t = normal.rsample()
+            y_t = torch.tanh(x_t)
+            action = y_t * self.action_scale + self.action_bias
+            
+            log_prob = normal.log_prob(x_t)
+            
+            # log_prob correction for the tanh function
+            log_prob -= torch.log(self.action_scale * (1 - y_t.pow(2)) + 1e-6)
+            log_prob = log_prob.sum(1, keepdim=True)
+
+            mean_action = torch.tanh(mean) * self.action_scale + self.action_bias
+            
+            return action, log_prob, mean_action
+        
+        else:
+            mean_action = torch.tanh(mean) * self.action_scale + self.action_bias
+            return mean_action, -torch.inf, mean_action
+  
+  
+  
 # Funzione per inizializzare i pesi in modo stabile
 def weights_init_(m):
     if isinstance(m, nn.Linear):
         torch.nn.init.orthogonal_(m.weight, gain=torch.nn.init.calculate_gain('relu'))
         torch.nn.init.constant_(m.bias, 0)
+
+
+
 
 
 class DenseSoftQNetwork(nn.Module):
@@ -477,7 +593,59 @@ def get_initial_action_batch(agent_ids,
     final_actions = np.clip(final_actions, -1.0, 1.0)
     
     return final_actions
-   
+
+def get_initial_action(agent_id, 
+                       alpha=0.8, 
+                       target_accuracy=0.05,
+                       noise_mean=0.0, 
+                       noise_std=0.1):
+    
+    # 1. GESTIONE MEMORIA E SETUP
+    # Inizializziamo il dizionario della memoria se non esiste
+    if not hasattr(get_initial_action, "memory"):
+        get_initial_action.memory = {}
+    
+    memory = get_initial_action.memory
+
+    # 2. CARICAMENTO STATO AGENTE
+    # Recuperiamo lo stato [act_spd, act_str, tgt_spd, tgt_str]
+    if agent_id in memory:
+        state = memory[agent_id].copy()
+    else:
+        # Se l'agente è nuovo, creiamo uno stato casuale tra -1 e 1
+        state = np.random.uniform(-1.0, 1.0, 4)
+
+    # Dividiamo lo stato per chiarezza (Speed e Steer)
+    # actuals = state[0:2], targets = state[2:4]
+    actual_values = state[0:2]
+    target_values = state[2:4]
+
+    # 3. LOGICA DI MOVIMENTO E TARGET
+    # A. Controllo se il target è stato raggiunto
+    # Calcoliamo la distanza assoluta tra valori attuali e target
+    diff = np.abs(target_values - actual_values)
+    
+    # Se entrambi i valori (o anche solo uno, a seconda della logica desiderata) 
+    # sono vicini al target, ne generiamo uno nuovo
+    if np.all(diff < target_accuracy):
+        target_values = np.random.uniform(-1.0, 1.0, 2)
+    
+    # B. Smoothing (Avvicinamento progressivo al target)
+    # Formula: nuovo_valore = alpha * vecchio + (1 - alpha) * target
+    actual_values = alpha * actual_values + (1 - alpha) * target_values
+
+    # 4. SALVATAGGIO E RITORNO
+    # Aggiorniamo lo stato completo e lo salviamo in memoria
+    new_state = np.concatenate([actual_values, target_values])
+    memory[agent_id] = new_state
+
+    # C. Aggiunta Rumore e Clipping per l'output finale
+    noise = np.random.normal(noise_mean, noise_std, 2)
+    final_action = np.clip(actual_values + noise, -1.0, 1.0)
+
+    return final_action
+ 
+ 
 def apply_unity_settings(channel, config_dict, label_prefix=''):
 
     for key, value in config_dict.items():
@@ -571,8 +739,7 @@ def collect_data_after_step(environment, BEHAVIOUR_NAME, STATE_SIZE):
         state = np.concatenate([organize_observations(decision_step.obs[0], 2),
                                 decision_step.obs[1].reshape(-1, STATE_SIZE + 1)[:,1:].flatten()])
 
-        obs[decision_step.obs[1][0]] = [id,
-                   state,
+        obs[id] = [state,
                    decision_step.reward,
                    None,
                    0]
@@ -582,8 +749,7 @@ def collect_data_after_step(environment, BEHAVIOUR_NAME, STATE_SIZE):
         # agent_id, obs, reward, action, done
         state = np.concatenate([organize_observations(terminal_step.obs[0], 2),
                                 terminal_step.obs[1].reshape(-1, STATE_SIZE + 1)[:,1:].flatten()])
-        obs[terminal_step.obs[1][0]] = [id,
-                   state,
+        obs[id] = [state,
                    terminal_step.reward,
                    None,
                    1]

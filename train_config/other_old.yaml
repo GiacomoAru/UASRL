@@ -12,7 +12,7 @@ rays_min_observation: -1.0
 rays_max_observation: 1.0      
 
 # Vector Observation (Stato numerico)
-state_observation_size: 10
+state_observation_size: 8
 state_min_observation: -128.0 
 state_max_observation: 128.0 
 

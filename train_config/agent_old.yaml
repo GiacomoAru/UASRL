@@ -4,7 +4,7 @@ max_step : 1000              # Maximum steps per episode
 
 # --- MOVEMENT SETTINGS ---
 max_movement_speed : 6  # Maximum forward movement speed units/sec
-max_turn_speed : 140      # Maximum rotation speed degrees/sec
+max_turn_speed : 120      # Maximum rotation speed degrees/sec
 move_smooth_time : 0.1    # Smoothing factor for velocity changes
 
 # --- REWARD SETTINGS ---
@@ -12,12 +12,12 @@ goal_reward : 10        # Reward for reaching the goal
 wall_hit_penalty : 0    # Penalty when hitting walls
 progress_reward : 0.05        # Reward for progress toward goal
 stagnation_penalty : -0.02    # Penalty for lack of movement
-ema_range_penalty : 8        # Distance threshold for EMA stagnation penalty
-ema_smoothing : 0.011          # Smoothing factor for EMA position
+ema_range_penalty : 15        # Distance threshold for EMA stagnation penalty
+ema_smoothing : 0.011         # Smoothing factor for EMA position
 
 # --- DEBUG SETTINGS ---
 print_debug : false           # Enable debug logging
-print_every_step : 1000          # Frequency of debug prints
+print_every_step : 10000          # Frequency of debug prints
 obstacle_test : false         # Enable manual obstacle testing
 ema_debug : false             # Enable EMA visualization
 cbf_debug : false             # Enable CBF visualization

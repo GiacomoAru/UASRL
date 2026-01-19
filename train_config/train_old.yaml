@@ -1,9 +1,9 @@
 # ==========================================
 # 1. SETUP ESPERIMENTO E HARDWARE
 # ==========================================
-exp_name: "personal_test"
-machine_name: "presonal"
-seed: 2205
+exp_name: "old_pers"
+machine_name: "personal"
+seed: 180618
 cuda: 0                 # indice gpu o -1 per cpu
 torch_deterministic: false
 wandb: true
@@ -12,24 +12,24 @@ worker_id: 0
 # ==========================================
 # 2. AMBIENTE E CONFIGURAZIONE UNITY
 # ==========================================
-env_id: "4xstd"
-n_envs: 4
-build_path: "./unity_build/4xstd_wind/UASRL.exe"
+env_id: "3xold"
+n_envs: 3
+build_path: "./unity_build/3xold_wind/UASRL.exe"
 headless: false
 test_lib: false
 base_time: 1765457030
 
 # Percorsi configurazioni specifiche
-agent_config_path: "./train_config/agent_std.yaml"
-obstacles_config_path: "./train_config/obstacles_std.yaml"
-other_config_path: "./train_config/other_std.yaml"
+agent_config_path: "./train_config/agent_old.yaml"
+obstacles_config_path: "./train_config/obstacles_old.yaml"
+other_config_path: "./train_config/other_old.yaml"
 
 # ==========================================
 # 3. TRAINING FLOW & MEMORY
 # ==========================================
-total_timesteps: 2000000
-learning_starts: 100          # Passi casuali iniziali prima di allenare
-buffer_size: 100000
+total_timesteps: 50000
+learning_starts: 1000          # Passi casuali iniziali prima di allenare
+buffer_size: 120000
 batch_size: 256
 
 # Bootstrapping (Ensemble sampling)
@@ -39,10 +39,10 @@ bootstrap_batch_proportion: 0.8
 # ==========================================
 # 4. ARCHITETTURA RETI NEURALI
 # ==========================================
-input_stack: 3
-q_ensemble_n: 3                # Numero di reti Q nell'ensemble
-actor_network_layers: [128, 128]
-q_network_layers: [128, 128]
+input_stack: 4
+q_ensemble_n: 5                # Numero di reti Q nell'ensemble
+actor_network_layers: [128, 128, 128]
+q_network_layers: [128, 128, 128]
 
 # ==========================================
 # 5. IPERPARAMETRI SAC (OPTIMIZATION)
@@ -52,13 +52,15 @@ tau: 0.005                      # Soft update per target networks
 reward_scale: 1.0
 
 # Learning Rates
-policy_lr: 0.0005 
-q_lr: 0.0004 
-alpha_lr: 0.0004                 # default solitamente = q_lr
+policy_lr: 0.0004
+q_lr: 0.0004
+alpha_lr: 0.0004                # default solitamente = q_lr
+noise_clip: 0.5
 
 # Entropia (Alpha)
 alpha: 0.2                     # Coefficiente entropia
-autotune: true                 # Tuning automatico di alpha
+target_entropy: -2.0           # Entropia target per
+autotune: true                 # Tuning automatico di alpha, se true usa target_entropy altrimenti usa alpha fisso
 
 # ==========================================
 # 6. LOGICA DI AGGIORNAMENTO
@@ -71,12 +73,12 @@ target_network_update_period: 1 # Ogni quanti step aggiornare la target net
 # 7. CURRICULUM LEARNING
 # ==========================================
 curriculum_steps: 1            # applicato a inital_fill_percentage, 1 = no curriculum
-min_success_rate: 0.80         # soglia per passare al passo successivo
-min_episodes_per_curriculum: 50 # episodi minimi tra un livello e l'altro
+min_success_rate: 0.8         # soglia per passare al passo successivo
+min_episodes_per_curriculum: 25 # episodi minimi tra un livello e l'altro
 
 # ==========================================
 # 8. LOGGING E METRICHE
 # ==========================================
 loss_log_interval: 500         # gradient steps
-metrics_log_interval: 10       # episodes
-metrics_smoothing: 0.96        # smoothing esponenziale (0.96 ~= ultimi 50 ep)
+metrics_log_interval: 5       # episodes
+metrics_smoothing: 0.98        # smoothing esponenziale

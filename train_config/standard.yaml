@@ -1,0 +1,39 @@
+# Experiment and logging settings
+exp-name: "new_age"                              # Name of the experiment
+env-id: "std"                                   # Environment ID
+torch-deterministic: true                       # Enforce deterministic behavior in PyTorch
+cuda: true                                      # Enable CUDA if available
+
+q-ensemble-n: 5                                 # Number of QNet in the ensemble
+bootstrap-batch-proportion: 0.8                       # Batch proportion sampled from the real batch
+
+# logs
+loss-log-interval: 100                          # save losses metrics every "step_save_losses" step
+metrics-log-intervall: 200            
+metrics-smoothing: 0.985
+
+# Network architecture settings
+q-network-layers: [128, 128, 128]               # Hidden layers for the Q network
+actor-network-layers: [128, 128, 128]           # Hidden layers for the actor network
+
+# Algorithm-specific hyperparameters
+total-timesteps: 50000                          # Total training timesteps
+update-per-step: 1                              # Per sfruttare la parallelizzazione di ambienti
+
+buffer-size: 120000                             # Replay buffer size
+
+gamma: 0.995                                    # Discount factor
+tau: 0.005                                      # Target network smoothing coefficient
+batch-size: 256                                 # Batch size for training
+
+learning-starts: 1000                           # Timesteps before learning starts
+policy-lr: 0.0004                               # Learning rate for the policy network
+q-lr: 0.0004                                    # Learning rate for the Q network
+
+policy-frequency: 4                             # Frequency of policy updates (delayed)
+target-network-frequency: 1                     # Frequency of target network updates
+noise-clip: 0.5                                 # Noise clipping for target policy smoothing
+
+alpha: 1.0                                      # Entropy regularization coefficient
+autotune: true                                  # Enable automatic tuning of the entropy coefficient
+alpha-lr: 0.0004                                # Learning rate for alpha if autotune = True

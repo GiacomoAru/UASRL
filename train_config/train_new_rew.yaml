@@ -27,9 +27,9 @@ other_config_path: "./train_config/other_new_rew.yaml"
 # ==========================================
 # 3. TRAINING FLOW & MEMORY
 # ==========================================
-total_timesteps: 2000000
+total_timesteps: 200000
 learning_starts: 1000          # Passi casuali iniziali prima di allenare
-buffer_size: 100000
+buffer_size: 50000
 batch_size: 512
 
 # Bootstrapping (Ensemble sampling)
@@ -48,31 +48,31 @@ q_network_layers: [128, 128, 128]
 # 5. IPERPARAMETRI SAC (OPTIMIZATION)
 # ==========================================
 gamma: 0.99                    # Discount factor
-tau: 0.005                      # Soft update per target networks
+tau: 0.01                      # Soft update per target networks
 reward_scale: 1.0
 
 # Learning Rates
-policy_lr: 0.005 
-q_lr: 0.005
+policy_lr: 0.01 
+q_lr: 0.01
 alpha_lr: 0.0002                 # default solitamente = q_lr
 
 # Entropia (Alpha)
-alpha: 1.0                     # Coefficiente entropia
-autotune: true                 # Tuning automatico di alpha
+alpha: 0.02                     # Coefficiente entropia
+autotune: false                 # Tuning automatico di alpha
 
 # ==========================================
 # 6. LOGICA DI AGGIORNAMENTO
 # ==========================================
 update_frequency: 2            # Quanti gradient updates per step ambientale
 policy_frequency: 1            # Ogni quanti step gradiente aggiornare la policy
-target_network_update_period: 2 # Ogni quanti step aggiornare la target net
+target_network_update_period: 1 # Ogni quanti step aggiornare la target net
 
 # ==========================================
 # 7. CURRICULUM LEARNING
 # ==========================================
-curriculum_steps: 5            # applicato a inital_fill_percentage, 1 = no curriculum
+curriculum_steps: 3            # applicato a inital_fill_percentage, 1 = no curriculum
 min_success_rate: 0.8         # soglia per passare al passo successivo
-min_episodes_per_curriculum: 50 # episodi minimi tra un livello e l'altro
+min_episodes_per_curriculum: 25 # episodi minimi tra un livello e l'altro
 
 # ==========================================
 # 8. LOGGING E METRICHE

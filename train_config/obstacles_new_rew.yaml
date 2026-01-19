@@ -10,10 +10,10 @@ external_walls: true            # Se creare o meno le pareti perimetrali
 # 2. ALGORITMO DI GENERAZIONE (PROCEDURALE)
 # ==========================================
 # Parametri Cellular Automata
-initial_fill_percentage: 0.42   # Densità iniziale (modificato dal Curriculum Learning)
-smoothing_iterations: 2         # Passaggi di smoothing per pulire la mappa
+initial_fill_percentage: 0.47   # Densità iniziale (modificato dal Curriculum Learning)
+smoothing_iterations: 3         # Passaggi di smoothing per pulire la mappa
 fill_threshold: 6               # Vicini necessari per creare un muro
-clear_threshold: 2              # Vicini massimi per rimuovere un muro (isole)
+clear_threshold: 3              # Vicini massimi per rimuovere un muro (isole)
 
 # Validazione
 check_path_try: 25              # Tentativi massimi per garantire un percorso valido
