@@ -1,0 +1,24 @@
+# ==========================================
+# 1. IDENTITÀ AGENTE
+# ==========================================
+behavior_name: NavigationAgent
+team: "0"
+
+# ==========================================
+# 2. SPAZIO DI OSSERVAZIONE (INPUTS)
+# ==========================================
+rays_per_direction: 10
+rays_min_observation: -1.0  
+rays_max_observation: 1.0      
+
+# Vector Observation (Stato numerico)
+state_observation_size: 8
+state_min_observation: -128.0 
+state_max_observation: 128.0 
+
+# ==========================================
+# 3. SPAZIO DI AZIONE (OUTPUTS)
+# ==========================================
+action_size: 2
+min_action: -1.0         
+max_action: 1.0         

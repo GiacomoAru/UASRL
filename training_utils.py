@@ -160,9 +160,6 @@ def weights_init_(m):
         torch.nn.init.constant_(m.bias, 0)
 
 
-
-
-
 class DenseSoftQNetwork(nn.Module):
     
     def __init__(self, 
@@ -496,6 +493,7 @@ def parse_args():
     args = parser.parse_args()
     return args
 
+
 ####################################################################################################
 ####################################################################################################
 
@@ -519,6 +517,7 @@ def modify_config_for_curriculum(step, total_step, obs_config):
     
     obs_config['initial_fill_percentage'] = 0.15 + (obs_config['og_initial_fill_percentage'] - 0.15)*(step/total_step)
     print(f'Curriculum step {step}/{total_step}:\n\tsetting initial_fill_percentage to {obs_config["initial_fill_percentage"]}')
+    
     
 def get_initial_action_batch(agent_ids, 
                              alpha=0.8, 

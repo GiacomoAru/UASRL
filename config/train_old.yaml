@@ -1,0 +1,77 @@
+# ==========================================
+# 1. SETUP ESPERIMENTO E HARDWARE
+# ==========================================
+exp_name: "old_pers"
+machine_name: "personal"
+seed: 180618
+cuda: 0                 # indice gpu o -1 per cpu
+torch_deterministic: false
+wandb: true
+worker_id: 0
+
+# ==========================================
+# 2. AMBIENTE E CONFIGURAZIONE UNITY
+# ==========================================
+env_id: "3xold"
+n_envs: 3
+build_path: "./unity_build/3xold_wind/UASRL.exe"
+headless: false
+test_lib: false
+base_time: 1765457030
+
+# Percorsi configurazioni specifiche
+agent_config_path: "./config/agent.yaml"
+obstacles_config_path: "./config/obstacles_simple.yaml"
+other_config_path: "./config/other.yaml"
+
+# ==========================================
+# 3. TRAINING FLOW & MEMORY
+# ==========================================
+total_timesteps: 100000
+learning_starts: 1000          # Passi casuali iniziali prima di allenare
+buffer_size: 120000
+batch_size: 256
+
+# Bootstrapping (Ensemble sampling)
+bootstrap: true               # Se usare il bootstrap nell'ensemble Q
+bootstrap_batch_proportion: 0.8
+
+# ==========================================
+# 4. ARCHITETTURA RETI NEURALI
+# ==========================================
+input_stack: 4
+q_ensemble_n: 5                # Numero di reti Q nell'ensemble
+actor_network_layers: [128, 128, 128]
+q_network_layers: [128, 128, 128]
+
+# ==========================================
+# 5. IPERPARAMETRI SAC (OPTIMIZATION)
+# ==========================================
+gamma: 0.995                    # Discount factor
+tau: 0.005                      # Soft update per target networks
+reward_scale: 1.0
+
+# Learning Rates
+policy_lr: 0.0001
+q_lr: 0.0001
+alpha_lr: 0.0001                # default solitamente = q_lr
+noise_clip: 0.0
+
+# Entropia (Alpha)
+alpha: 0.2                     # Coefficiente entropia
+target_entropy: -1.0           # Entropia target per
+autotune: true                 # Tuning automatico di alpha, se true usa target_entropy altrimenti usa alpha fisso
+
+# ==========================================
+# 6. LOGICA DI AGGIORNAMENTO
+# ==========================================
+update_frequency: 1            # Quanti gradient updates per step ambientale
+policy_frequency: 4            # Ogni quanti step gradiente aggiornare la policy
+target_network_update_period: 1 # Ogni quanti step aggiornare la target network
+
+# ==========================================
+# 8. LOGGING E METRICHE
+# ==========================================
+loss_log_interval: 500         # gradient steps
+metrics_log_interval: 10       # episodes
+metrics_smoothing: 0.98        # smoothing esponenziale
