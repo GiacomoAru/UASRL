@@ -3,30 +3,30 @@ step_after_goal : 10        # Steps to continue after reaching the goal before r
 max_step : 1000              # Maximum steps per episode
 
 # --- MOVEMENT SETTINGS ---
-max_movement_speed : 6  # Maximum forward movement speed units/sec
-max_turn_speed : 120      # Maximum rotation speed degrees/sec
+max_movement_speed : 1.1  # Maximum forward movement speed units/sec
+max_turn_speed : 180      # Maximum rotation speed degrees/sec
 move_smooth_time : 0.1    # Smoothing factor for velocity changes
 
 # --- REWARD SETTINGS ---
 goal_reward : 10        # Reward for reaching the goal
 wall_hit_penalty : 0    # Penalty when hitting walls
 progress_reward : 0.05        # Reward for progress toward goal
-stagnation_penalty : -0.02    # Penalty for lack of movement
+stagnation_penalty : -0.022    # Penalty for lack of movement
 ema_range_penalty : 15        # Distance threshold for EMA stagnation penalty
 ema_smoothing : 0.011         # Smoothing factor for EMA position
 
 # --- DEBUG SETTINGS ---
-print_debug : false           # Enable debug logging
-print_every_step : 10000          # Frequency of debug prints
-obstacle_test : false         # Enable manual obstacle testing
-ema_debug : false             # Enable EMA visualization
-cbf_debug : false             # Enable CBF visualization
-action_debug : false          # Enable drawing of action arrows
-hud_debug : false             # Enable on-screen HUD debug display
+# print_debug : false           # Enable debug logging
+# print_every_step : 10000          # Frequency of debug prints
+# obstacle_test : false         # Enable manual obstacle testing
+# ema_debug : false             # Enable EMA visualization
+# cbf_debug : false             # Enable CBF visualization
+# action_debug : false          # Enable drawing of action arrows
+# hud_debug : false             # Enable on-screen HUD debug display
 
 # --- HUD SETTINGS ---
-hudX : 10                    # HUD X position on screen
-hudY : 10                    # HUD Y position on screen
-hudWidth : 320               # HUD width
-hudHeight : 560              # HUD height
-hudScale : 1.0                # HUD text scale factor    
+# hudX : 10                    # HUD X position on screen
+# hudY : 10                    # HUD Y position on screen
+# hudWidth : 320               # HUD width
+# hudHeight : 560              # HUD height
+# hudScale : 1.0                # HUD text scale factor    

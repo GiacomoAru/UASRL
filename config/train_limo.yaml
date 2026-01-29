@@ -27,10 +27,10 @@ other_config_path: "./config/other.yaml"
 # ==========================================
 # 3. TRAINING FLOW & MEMORY
 # ==========================================
-total_timesteps: 2000
-learning_starts: 2          # Passi casuali iniziali prima di allenare
+total_timesteps: 80000
+learning_starts: 1000          # Passi casuali iniziali prima di allenare
 buffer_size: 100000
-batch_size: 128
+batch_size: 256
 
 # Bootstrapping (Ensemble sampling)
 bootstrap: true               # Se usare il bootstrap nell'ensemble Q
@@ -41,8 +41,8 @@ bootstrap_batch_proportion: 0.8
 # ==========================================
 input_stack: 4
 q_ensemble_n: 5                # Numero di reti Q nell'ensemble
-actor_network_layers: [6, 6, 6,120,6,6,6,8]
-q_network_layers: [32,16,8,4,2,1]
+actor_network_layers: [128, 128, 128]
+q_network_layers: [128, 128, 128]
 
 # ==========================================
 # 5. IPERPARAMETRI SAC (OPTIMIZATION)

@@ -20,6 +20,7 @@ from training_utils import *
 # [markdown]
 #  Args
 
+
 args = parse_args()
 agent_config = parse_config_file(args.agent_config_path)
 obstacles_config = parse_config_file(args.obstacles_config_path)
@@ -77,7 +78,7 @@ if args.test_lib:
 # env setup
 print(f'Starting Unity Environment from build: {args.build_path}')
 # args.build_path
-env = UnityEnvironment(args.build_path, 
+env = UnityEnvironment(None, 
                        seed=args.seed, 
                        side_channels=[env_info, param_channel], 
                        no_graphics=args.headless,
@@ -149,10 +150,6 @@ qf_optimizer = torch.optim.Adam(
     par,
     lr=args.q_lr
 )
-
-obs_stack = DenseStackedObservations(args.input_stack, 
-                                     STATE_SIZE + RAYCAST_SIZE, 
-                                     args.n_envs)
 
 # [markdown]
 #  Replay Buffer
