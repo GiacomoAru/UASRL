@@ -323,7 +323,7 @@ def train(args, agent_config, obstacles_config, other_config):
             # Save best models based on reward
             if episodic_stats != {} and episodic_stats["reward"] > best_reward:
                 best_reward = episodic_stats["reward"]
-                best_success = episodic_stats["success_rate"]
+                best_success = episodic_stats["success"]
                 
                 save_models(actor, qf_ensemble, qf_ensemble_target, save_path, suffix=f'_best')
                 print(f"[{global_step}/{args.total_timesteps}] Models saved, suffix: _best")

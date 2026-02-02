@@ -35,7 +35,6 @@ def test(env,
          BEHAVIOUR_NAME,
          STATE_SIZE,
          RAYCAST_SIZE,
-         STACK_NUMBER,
          DEVICE
         ):
 
@@ -124,20 +123,21 @@ def test(env,
                             cumulative_obs[id][1] = actual_obs
                             corrected_obs = actual_obs
                         else:
-                            p1 = cumulative_obs[id][1][RAYCAST_SIZE:RAYCAST_SIZE*STACK_NUMBER]
-                            p2 = cumulative_obs[id][1][RAYCAST_SIZE*STACK_NUMBER + STATE_SIZE:RAYCAST_SIZE*STACK_NUMBER + STATE_SIZE*STACK_NUMBER]
-                            
-                            corrected_obs = np.concatenate(
-                                [p1,
-                                actual_obs[RAYCAST_SIZE*(STACK_NUMBER - 1):RAYCAST_SIZE*STACK_NUMBER],
-                                p2,
-                                actual_obs[-STATE_SIZE:]]
-                                )
-                        
+                            corrected_obs = cumulative_obs[id][1][RAYCAST_SIZE + STATE_SIZE:] 
+                            corrected_obs = np.concatenate([corrected_obs, actual_obs[-RAYCAST_SIZE - STATE_SIZE:]])
+
                         # Policy action from actor
-                        action, _, _ = actor.get_action(torch.tensor(corrected_obs, dtype=torch.float32, device=DEVICE).unsqueeze(0), args.actor_std)
+                        action, _, _ = actor.get_action(torch.tensor(corrected_obs, dtype=torch.float32, device=DEVICE).unsqueeze(0))
                         action = action[0].detach().cpu().numpy()
                         
+                        '''# Uncertainty filter (optional)
+                        if CONFIG_DICT['uncertainty_filter']['enabled']: 
+                            uncertanty_estimate = filter_methods[CONFIG_DICT['uncertainty_filter']['method']](
+                                corrected_obs, 
+                                action
+                            )
+                            cumulative_obs[id][4] = uncertanty_estimate
+                            cumulative_obs[id][5] = uncertanty_estimate > CONFIG_DICT['uncertainty_filter']['threshold']'''
                         
                         # Update agent memory
                         cumulative_obs[id][1] = corrected_obs
@@ -155,10 +155,48 @@ def test(env,
 
                     # Use last predicted action by default
                     policy_action = cumulative_obs[id][2] 
+                    
+                    # Control Barrier Function (CBF) correction
+                    '''
+                    cbf_action = np.zeros(2)
+                    if CONFIG_DICT['cbf']['enabled']:
+                        if CONFIG_DICT['uncertainty_filter']['application'] != 'dynamic':
+                            cbf_action = CBF_from_obs(
+                                actual_ray_obs[-1], policy_action, env_info,
+                                CONFIG_DICT['cbf']['d_safe'],
+                                CONFIG_DICT['cbf']['alpha'],
+                                CONFIG_DICT['cbf']['d_safe_mul'],
+                                angoli_radianti_precalcolati
+                            )
 
+                        else:
+                            cbf_action = CBF_from_obs(
+                                actual_ray_obs[-1], policy_action, env_info,
+                                CONFIG_DICT['cbf']['d_safe'] * min(cumulative_obs[id][4]/CONFIG_DICT['uncertainty_filter']['threshold'], 1),
+                                CONFIG_DICT['cbf']['alpha'],
+                                CONFIG_DICT['cbf']['d_safe_mul'],
+                                angoli_radianti_precalcolati
+                            )
+                            
+                        # Ensure minimum forward velocity
+                        if policy_action[0] > CONFIG_DICT['cbf']['min_forward']:
+                            cbf_action[0] = max(CONFIG_DICT['cbf']['min_forward'], cbf_action[0])
+                        else:
+                            cbf_action[0] = max(policy_action[0], cbf_action[0])'''
+                                
+                    # Check if CBF activated
+                    # cbf_activation = CONFIG_DICT['cbf']['enabled'] and np.linalg.norm(cbf_action - policy_action) > 0.0001
+                    # running_episodes[id][-1]['inner_steps'].append([np.linalg.norm(cbf_action - policy_action), cbf_activation])
+                    
                     # Final action selection (UF + CBF logic)
                     final_action = policy_action
-      
+                    '''if CONFIG_DICT['uncertainty_filter']['application'] == 'interpolation':
+                        interpolation_coeff = min(cumulative_obs[id][4]/CONFIG_DICT['uncertainty_filter']['threshold'], 1)
+                        final_action = cbf_action * interpolation_coeff + ( 1- interpolation_coeff) * policy_action
+                    else:  
+                        if cumulative_obs[id][5] and cbf_activation:
+                            final_action = cbf_action'''
+                    
                     # Debug visualization (optional)
                     if args.send_debug_action:
                         env_info.send_agent_action_debug(
@@ -331,7 +369,7 @@ for obs_config_path in args.obstacles_config_paths:
         
 
         summary_save_filepath = args.save_path + args.test_name + ".csv"
-        specific_save_filepath = args.save_path + args.test_name + "/" + f"{args.test_full_name}"
+        specific_save_filepath = args.save_path + args.test_name + "/" + f"{additional_number}" + ".json"
         os.makedirs(args.save_path, exist_ok=True)
         os.makedirs(args.save_path + args.test_name, exist_ok=True)
         
@@ -344,6 +382,7 @@ for obs_config_path in args.obstacles_config_paths:
             p_layers
         ).to(DEVICE)
         load_models(actor, save_path='./models/' + p_name, suffix='_best')
+
 
         other_stats, episodic_stats, dataset = test(env, 
                 env_info,
@@ -358,12 +397,10 @@ for obs_config_path in args.obstacles_config_paths:
                 BEHAVIOUR_NAME,
                 STATE_SIZE,
                 RAYCAST_SIZE,
-                train_config['input_stack'],
                 DEVICE)
 
         other_stats['env_name'] = obs_config_path.split('/')[-1].split('.')[0]
         other_stats['policy_name'] = p_name
-        other_stats['test_name'] = args.test_full_name
         
         print(f'Saving summary data to: {specific_save_filepath}')
         save_stats_to_csv(other_stats, episodic_stats, summary_save_filepath)
@@ -372,7 +409,7 @@ for obs_config_path in args.obstacles_config_paths:
         print(f'Saving accumulated dataset to path: {specific_save_filepath}')
         if args.accumulate_data: 
             
-            d1 = {
+            dataset = {
                 'metadata': {
                     'test_config': vars(args),
                     'train_config': train_config,
@@ -380,9 +417,8 @@ for obs_config_path in args.obstacles_config_paths:
                     'obstacles_config': obstacles_config,
                     'other_config': other_config
                 },
-                'data': [x[1] for x in dataset]
+                'data': dataset
             }
-            d2 = [x[0] for x in dataset]
             
             # Recursive helper to convert all numbers into float (JSON safe)
             def convert_all_to_float(obj):
@@ -396,9 +432,8 @@ for obs_config_path in args.obstacles_config_paths:
                     return obj
                 
             # Save dataset with timestamp in filename
-            with open(specific_save_filepath + '_1.json', 'w+') as file:
-                file.write(json.dumps(convert_all_to_float(d1)))
-            with open(specific_save_filepath + '_1.json', 'w+') as file:
-                file.write(json.dumps(convert_all_to_float(d2)))
+            with open(specific_save_filepath, 'w+') as file:
+                file.write(json.dumps(convert_all_to_float(dataset)))
+    
 env.close()
 

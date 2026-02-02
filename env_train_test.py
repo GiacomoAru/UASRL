@@ -16,6 +16,7 @@ from gymnasium import spaces
 from stable_baselines3.common.buffers import ReplayBuffer
 
 from training_utils import *
+from testing_utils import *
 
 # [markdown]
 #  Args
@@ -78,7 +79,7 @@ if args.test_lib:
 # env setup
 print(f'Starting Unity Environment from build: {args.build_path}')
 # args.build_path
-env = UnityEnvironment(None, 
+env = UnityEnvironment(args.build_path,
                        seed=args.seed, 
                        side_channels=[env_info, param_channel], 
                        no_graphics=args.headless,
@@ -151,8 +152,6 @@ qf_optimizer = torch.optim.Adam(
     lr=args.q_lr
 )
 
-
-
 # [markdown]
 #  Replay Buffer
 
@@ -213,6 +212,8 @@ training_stats = {
     'loss/alpha': RunningMean(),
 }
 
+load_models(actor, save_path='./models/simple_1_4215766', suffix='_best')
+
 best_reward = -float('inf')
 
 episodic_stats = {}
@@ -229,7 +230,6 @@ print(f'[{global_step}/{args.total_timesteps}] Starting Training - run name: {ru
 try:
     obs = collect_data_after_step(env, BEHAVIOUR_NAME, STATE_SIZE)
     
-    
     while global_step < args.total_timesteps:
 
         # actions for each agent in the environment
@@ -241,19 +241,8 @@ try:
             if agent_obs[3]:
                 continue
             
-            # algo logic
-            if global_step < args.learning_starts * 2:
-                # change this to use the handcrafted starting policy or a previously trained policy
-                
-                action = get_initial_action(id)
-                # action, _, _ = old_actor.get_action(torch.Tensor([obs[id][0]]), 
-                #                                 torch.Tensor([obs[id][1]]),
-                #                                 0.5)
-                # action = action[0].detach().numpy()
-            else:
-                # training policy
-                action, _, _ = actor.get_action(torch.Tensor([obs[id][0]]).to(DEVICE))
-                action = action[0].detach().cpu().numpy()
+            action, _, _ = actor.get_action(torch.Tensor([obs[id][0]]).to(DEVICE))
+            action = action[0].detach().cpu().numpy()
             
             # memorize the action taken for the next step
             agent_obs[2] = action

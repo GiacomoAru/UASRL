@@ -1,0 +1,26 @@
+# --- Configurazione Progetto ---
+project_name: "Unc_UASRL"
+p_name: "simple_0_4164735"
+cuda: 0
+
+# --- dati ---
+data_path: "./remote_results/simple_test/4321083.json"  # Percorso dati
+save_path: "./unc_models/"  # Percorso salvataggio modelli
+actor_path: "./models/"  
+
+# --- Dimensioni dei Dati (Architettura) ---
+obs_dim: 10         # Dimensione osservazione singola
+action_dim: 2       # Dimensione azione
+dist_dim: 2         # Dimensione output distribuzione agente
+stack_size: 4       # Numero di frame stackati
+
+# --- Hyperparameter Optimization (HPO - Fase 1) ---
+hpo_trials: 10      # Numero di tentativi Optuna
+hpo_epochs: 2      # Epoche ridotte per la ricerca veloce
+
+# --- Training Ensemble (Fase 2) ---
+final_epochs: 10   # Epoche massime per il training vero
+patience: 2        # Early stopping patience
+batch_size: 256     # Dimensione del batch
+k_models_total: 5   # Numero totale di reti da allenare
+n_elites: 3         # Numero di reti migliori da tenere (Elites)

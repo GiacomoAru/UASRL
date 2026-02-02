@@ -1,13 +1,13 @@
 
-policy_names: ["multy_test_4050747", "multy_test_4050747", "multy_test_4050747"]
-policy_layers: [[128,128,128], [128,128,128], [128,128,128]]
+policy_names: ["complex_0_4090216", "complex_1_4124018", "complex_1_4165576", "simple_0_4149017", "simple_0_4164735", "simple_1_4215766", "basic_1_4156908", "basic_1_4205364", "basic_1_4219120"]
+policy_layers: [[128,128,128], [256,256,256], [256,256,256], [128,128,128], [256,256,256], [128,128,128], [128,128,128], [256, 256, 128], [256, 256, 256]]
 
 obstacles_config_paths: ["./config/obstacles_complex.yaml", "./config/obstacles_simple.yaml"]
 
 train_config_path: "./config/train_limo.yaml"
-test_name: "test_name"
+test_name: "final_check"
 machine_name: personal
-seed: 1234
+seed: 2205
 episode_queue_length: 18
 # complex: [complex_1_4165576, complex_0_4090216, complex_1_4124018]
 # simple: 
@@ -19,12 +19,12 @@ agent_config_path: "./config/agent_test.yaml"
 headless: false
 worker_id: 0
 base_time: 1765457030
+actor_std: 0.95
 
 accumulate_data: true
 
-total_episodes: 11
-metrics_log_interval: 50
-metrics_smoothing: 0.9
+total_episodes: 10
+metrics_log_interval: 2
 
 decision_frame_period: 5
 send_debug_action: false

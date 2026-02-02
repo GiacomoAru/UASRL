@@ -6,7 +6,7 @@ machine_name: "personal"
 seed: 180618
 cuda: 0                 # indice gpu o -1 per cpu
 torch_deterministic: false
-wandb: true
+wandb: false
 worker_id: 0
 
 # ==========================================
@@ -14,7 +14,7 @@ worker_id: 0
 # ==========================================
 env_id: "3xold"
 n_envs: 3
-build_path: "./unity_build/3xlimo_wind/UASRL.exe"
+build_path: "./unity_build/3xlimo_wind_test/UASRL.exe"
 headless: false
 test_lib: false
 base_time: 1765457030
@@ -28,7 +28,7 @@ other_config_path: "./config/other.yaml"
 # 3. TRAINING FLOW & MEMORY
 # ==========================================
 total_timesteps: 2000
-learning_starts: 2          # Passi casuali iniziali prima di allenare
+learning_starts: 1000          # Passi casuali iniziali prima di allenare
 buffer_size: 100000
 batch_size: 128
 
@@ -41,7 +41,7 @@ bootstrap_batch_proportion: 0.8
 # ==========================================
 input_stack: 4
 q_ensemble_n: 5                # Numero di reti Q nell'ensemble
-actor_network_layers: [6, 6, 6,120,6,6,6,8]
+actor_network_layers: [128,128,128]
 q_network_layers: [32,16,8,4,2,1]
 
 # ==========================================
