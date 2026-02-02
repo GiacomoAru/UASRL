@@ -7,8 +7,8 @@ train/
 models/
 unity_build/
 wandb/
-results_summary/
-results_specific/
+results/
+remote_results/
 
 # User-specific files
 *.rsuser
