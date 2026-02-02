@@ -9,6 +9,7 @@ unity_build/
 wandb/
 results/
 remote_results/
+unc_models/
 
 # User-specific files
 *.rsuser
