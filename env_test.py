@@ -53,9 +53,6 @@ def test(env,
     for i in range(args.episode_queue_length):
         env_info.send_episode_seed(i+args.seed) # semplice seeding per ogni episodio
     seed_sent = args.episode_queue_length
-    
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print(f"Using device: {device}")
 
     start_time = time.time()
     unity_end_time = -1
@@ -267,7 +264,6 @@ print('other_config:')
 pprint(other_config)
 
 
-
 BEHAVIOUR_NAME = other_config['behavior_name'] + '?team=' + other_config['team']
 RAY_PER_DIRECTION = other_config['rays_per_direction']
 RAYCAST_MIN = other_config['rays_min_observation']
@@ -282,13 +278,11 @@ ACTION_MAX = other_config['max_action']
 TOTAL_STATE_SIZE = (STATE_SIZE + RAYCAST_SIZE)*train_config['input_stack']
     
     
-    
 if torch.cuda.is_available() and args.cuda >= 0:
     # F-string per inserire l'indice: diventa "cuda:2"
     device_str = f"cuda:{args.cuda}"
 else:
     device_str = "cpu"
-
 DEVICE = torch.device(device_str)
 print(f"Using device: {DEVICE}")
 
@@ -343,7 +337,7 @@ for obs_config_path in args.obstacles_config_paths:
             ACTION_MAX,
             p_layers
         ).to(DEVICE)
-        load_models(actor, save_path='./models/' + p_name, suffix='_best')
+        load_models(actor, save_path='./models/' + p_name, suffix='_best', DEVICE=DEVICE)
 
         other_stats, episodic_stats, dataset = test(env, 
                 env_info,
@@ -396,9 +390,9 @@ for obs_config_path in args.obstacles_config_paths:
                     return obj
                 
             # Save dataset with timestamp in filename
-            with open(specific_save_filepath + '_1.json', 'w+') as file:
+            with open(specific_save_filepath + '_info.json', 'w+') as file:
                 file.write(json.dumps(convert_all_to_float(d1)))
-            with open(specific_save_filepath + '_1.json', 'w+') as file:
+            with open(specific_save_filepath + '_transitions.json', 'w+') as file:
                 file.write(json.dumps(convert_all_to_float(d2)))
 env.close()
 

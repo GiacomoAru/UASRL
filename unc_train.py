@@ -1,73 +1,24 @@
+# --- Librerie Standard e Utilità ---
+import os
+import json
+import random
+import numpy as np
+from tqdm import tqdm
+
+# --- Machine Learning e Processamento Dati ---
 import torch
 import torch.nn as nn
 import torch.optim as optim
-import wandb
-import numpy as np
-import os
-import optuna
+from torch.utils.data import TensorDataset, DataLoader
 from sklearn.model_selection import train_test_split
-from torch.utils.data import TensorDataset, DataLoader # Assicurati di importarlo
-import json
 
+# --- Ottimizzazione e Monitoraggio ---
+import optuna
+import wandb
+
+# --- Moduli Personalizzati ---
 from training_utils import *
 from testing_utils import *
-
-import argparse
-import sys
-
-def parse_args(default_config_path="./config/uncertainty_debug.yaml"):
-    """
-    Parse arguments from CLI or notebook.
-    - In notebook: usa il default se non passato
-    - In CLI: permette override dei parametri nel config
-    """
-    # --- Gestione notebook: evita crash su ipykernel args ---
-    argv = sys.argv[1:]
-    # Se siamo in notebook o non è passato il config_path, inseriamo il default
-    if len(argv) == 0 or "--f=" in " ".join(argv):
-        argv = [default_config_path]
-
-    # --- Pre-parser per leggere il config_path ---
-    pre_parser = argparse.ArgumentParser(add_help=False)
-    pre_parser.add_argument(
-        "config_path",
-        type=str,
-        nargs="?",
-        default=default_config_path,
-        help="Main config file path"
-    )
-    initial_args, remaining_argv = pre_parser.parse_known_args(argv)
-    CONFIG_PATH = initial_args.config_path
-    print(f"Config path: {CONFIG_PATH}")
-
-    # --- Legge parametri dal file di config ---
-    file_config_dict = parse_config_file(CONFIG_PATH)
-
-    # --- Parser principale ---
-    parser = argparse.ArgumentParser(description="Training Script")
-    parser.add_argument(
-        "config_path",
-        type=str,
-        nargs="?",
-        default=CONFIG_PATH,
-        help="Main config file path"
-    )
-
-    # Aggiunge parametri dal config file, con tipi corretti
-    for key, value in file_config_dict.items():
-        if isinstance(value, bool):
-            parser.add_argument(f"--{key}", type=str2bool, default=value)
-        elif value is None:
-            parser.add_argument(f"--{key}", type=str, default=value)
-        else:
-            parser.add_argument(f"--{key}", type=type(value), default=value)
-
-    # --- Parse finale con remaining_argv per ignorare args extra Jupyter ---
-    args, unknown = parser.parse_known_args(remaining_argv)
-    if unknown:
-        print("Ignored unknown args:", unknown)
-    return args
-
 
 # --- 1. IL MODELLO ---
 class ProbabilisticNetwork(nn.Module):
@@ -137,75 +88,91 @@ def load_and_split_data(raw_data,
                         DEVICE,
                         
                         shuffle=True):
-    print(">>> Caricamento e Processamento Dati...")
+    print(">>> Caricamento e Processamento Dati (Split per Episodi)...")
     
+    # 1. SPLIT DEGLI EPISODI (PRIMA DI TUTTO)
+    # Copiamo raw_data per non modificare la lista originale fuori dalla funzione
+    all_episodes = list(raw_data) 
     
-    inputs_list = []
-    outputs_list = []
-    
-    # Assicuriamoci che l'actor sia in modalità valutazione e non salvi i gradienti qui
-    # Questo risparmia moltissima memoria e velocizza il caricamento
+    if shuffle:
+        print("Shuffling degli episodi...")
+        random.shuffle(all_episodes)
+
+    total_episodes = len(all_episodes)
+    n_train = int(total_episodes * 0.8) # 80%
+    n_val = int(total_episodes * 0.1)   # 10%
+    # Il restante 10% va al test
+
+    train_episodes = all_episodes[:n_train]
+    val_episodes = all_episodes[n_train : n_train + n_val]
+    test_episodes = all_episodes[n_train + n_val:]
+
+    print(f"Split Episodi -> Train: {len(train_episodes)}, Val: {len(val_episodes)}, Test: {len(test_episodes)}")
+
+    # Assicuriamoci che l'actor sia in eval
     actor_model.eval()
-    
-    print(f"Processing {len(raw_data)} episodes...")
-    
-    with torch.no_grad(): # DISATTIVA GRADIENTI PER VELOCITÀ
-        for episode in raw_data:
-            # episode[0] sono le osservazioni, episode[1] le info (che ignoriamo per ora)
-            all_observations = episode[0]
 
-            for t in range(len(all_observations) - 1):
-                # 1. Recupera Input Corrente
-                actual_obs_and_action = all_observations[t]
-                
-                # 2. Calcola Next Observation (Logica custom tua mantenuta)
-                # Assumiamo che INPUT_STACK, RAYCASY_SIZE, STATE_SIZE siano costanti globali o in config
-                # Se sono in config, usa config['input_stack'] etc.
-                next_obs = all_observations[t + 1][(INPUT_STACK - 1)*RAYCASY_SIZE: (INPUT_STACK)*RAYCASY_SIZE] + all_observations[t + 1][-STATE_SIZE - 2:-2]
-                
-                # 3. Processamento Actor
-                # Convertiamo l'input dell'actor in tensore (su DEVICE per l'inferenza veloce)
-                obs_tensor = torch.FloatTensor(actual_obs_and_action[:-2])
-                
-                # L'actor restituisce una lista/tupla? La concateniamo.
-                actor_distrib = actor_model(obs_tensor.to(DEVICE))
-                
-                # IMPORTANTE: .cpu() qui! Riportiamo il risultato in RAM per non intasare la GPU
-                if isinstance(actor_distrib, (tuple, list)):
+    # --- FUNZIONE INTERNA PER PROCESSARE UNA LISTA DI EPISODI ---
+    def process_dataset_subset(episodes_subset, subset_name):
+        if not episodes_subset:
+            print(f"Warning: {subset_name} set is empty!")
+            return torch.tensor([]), torch.tensor([])
+
+        inputs_list = []
+        outputs_list = []
+        
+        print(f"Processing {subset_name} ({len(episodes_subset)} episodes)...")
+
+        with torch.no_grad():
+            for all_observations in episodes_subset:
+
+                # Saltiamo episodi troppo corti se necessario, o gestiamo l'errore
+                if len(all_observations) < 2:
+                    continue
+
+                for t in range(len(all_observations) - 1):
+                    # --- A. Recupera Input Corrente ---
+                    actual_obs = all_observations[t][:-2]
+                    
+                    # --- B. Calcola Next Observation (Logica Custom) ---
+                    # Nota: Qui assumiamo che la struttura di episode[0] supporti questo slicing
+                    next_obs = all_observations[t + 1][(INPUT_STACK - 1)*RAYCASY_SIZE: (INPUT_STACK)*RAYCASY_SIZE] + all_observations[t + 1][-STATE_SIZE - 2: - 2]
+                    
+                    # --- C. Processamento Actor ---
+                    obs_tensor = torch.FloatTensor(actual_obs).to(DEVICE)
+                    
+                    actor_distrib = actor_model(obs_tensor)
                     actor_distrib = torch.cat(actor_distrib).detach().cpu()
-                else:
-                    actor_distrib = actor_distrib.detach().cpu()
-                
-                # 4. Creazione Input Finale
-                # Uniamo osservazione (convertita in tensor CPU) + distribuzione actor
-                input_tensor = torch.cat([torch.FloatTensor(actual_obs_and_action), actor_distrib])
-                output_tensor = torch.FloatTensor(next_obs)
-                
-                inputs_list.append(input_tensor)
-                outputs_list.append(output_tensor)
-    
-    # --- 5. STACKING E DATASET CREATION ---
-    print("Stacking dei tensori...")
-    # Convertiamo la lista di tensori in UN unico tensore gigante [N_samples, Input_Dim]
-    # Restiamo su CPU (.float() per precisione standard)
-    X = torch.stack(inputs_list).float()
-    y = torch.stack(outputs_list).float()
-    
-    input_dim = X.shape[1]
-    output_dim = y.shape[1]
-    print(f"Dataset Shape -> X: {X.shape}, y: {y.shape}")
+                    
+                    # --- D. Creazione Input Finale ---
+                    # Riportiamo obs su CPU per unirlo
+                    input_tensor = torch.cat([obs_tensor.cpu(), actor_distrib])
+                    output_tensor = torch.FloatTensor(next_obs)
+                    
+                    inputs_list.append(input_tensor)
+                    outputs_list.append(output_tensor)
+        
+        # Stacking finale per questo subset
+        if len(inputs_list) > 0:
+            X = torch.stack(inputs_list).float()
+            y = torch.stack(outputs_list).float()
+            return X, y
+        else:
+            return torch.tensor([]), torch.tensor([])
 
-    # --- 6. SPLITTING ---
-    # Usiamo scikit-learn sui tensori CPU (funziona benissimo)
-    # Split: 80% Train, 20% Temp
-    X_train, X_temp, y_train, y_temp = train_test_split(X, y, test_size=0.2, random_state=42, shuffle=shuffle)
-    # Split Temp: 10% Val, 10% Test (metà del 20%)
-    X_val, X_test, y_val, y_test = train_test_split(X_temp, y_temp, test_size=0.5, random_state=42, shuffle=shuffle)
+    # 2. ESEGUIAMO IL PROCESSAMENTO SUI 3 GRUPPI SEPARATI
+    X_train, y_train = process_dataset_subset(train_episodes, "Train")
+    X_val, y_val = process_dataset_subset(val_episodes, "Validation")
+    X_test, y_test = process_dataset_subset(test_episodes, "Test")
+
+    input_dim = X_train.shape[1] if len(X_train) > 0 else 0
+    output_dim = y_train.shape[1] if len(y_train) > 0 else 0
     
-    print(f"Dataset Split: Train={len(X_train)}, Val={len(X_val)}, Test={len(X_test)}")
-    
-    # Ritorniamo i Tensori PURI (non DataLoader). 
-    # I DataLoader li creiamo dentro il training loop (vedi sotto perché).
+    print(f"Final Dataset Shapes:")
+    print(f"Train: X={X_train.shape}, y={y_train.shape}")
+    print(f"Val:   X={X_val.shape}, y={y_val.shape}")
+    print(f"Test:  X={X_test.shape}, y={y_test.shape}")
+
     return (X_train, y_train), (X_val, y_val), (X_test, y_test), input_dim, output_dim
 
 # --- 4. OPTIMIZATION LOOP (OPTUNA) ---
@@ -213,7 +180,7 @@ def objective(trial, train_data, val_data, input_dim, output_dim, args, DEVICE):
     # Suggerisci parametri
     lr = trial.suggest_float("lr", 1e-5, 1e-2, log=True)
     hidden_size = trial.suggest_categorical("hidden_size", [128, 256, 512])
-    batch_size = trial.suggest_categorical("batch_size", [64, 128, 256, 512])
+    batch_size = trial.suggest_categorical("batch_size", [256, 512, 1024])
     weight_decay = trial.suggest_float("weight_decay", 1e-6, 1e-3, log=True)
     
     model = ProbabilisticNetwork(input_dim, output_dim, hidden_size).to(DEVICE)
@@ -231,7 +198,7 @@ def objective(trial, train_data, val_data, input_dim, output_dim, args, DEVICE):
         model.train()
         # Batching semplificato per HPO
         permutation = torch.randperm(X_train.size(0))
-        batch_size = args.batch_size
+        batch_size = batch_size
         
         epoch_loss = 0
         for i in range(0, X_train.size(0), batch_size):
@@ -240,7 +207,7 @@ def objective(trial, train_data, val_data, input_dim, output_dim, args, DEVICE):
             
             optimizer.zero_grad()
             mu, logvar = model(batch_x.to(DEVICE))
-            loss = loss_fn(mu, batch_y.to(DEVICE), torch.exp(logvar))
+            loss = loss_fn(mu, batch_y.to(DEVICE), torch.exp(logvar) + 1e-6) # epsilon to avoid instability
             loss.backward()
             optimizer.step()
             epoch_loss += loss.item()
@@ -249,7 +216,7 @@ def objective(trial, train_data, val_data, input_dim, output_dim, args, DEVICE):
         model.eval()
         with torch.no_grad():
             v_mu, v_logvar = model(X_val.to(DEVICE))
-            val_loss = loss_fn(v_mu, y_val, torch.exp(v_logvar)).item()
+            val_loss = loss_fn(v_mu, y_val, torch.exp(v_logvar) + 1e-6).item()
         
         # Pruning (Optuna ferma i trial che vanno male subito)
         trial.report(val_loss, epoch)
@@ -272,15 +239,16 @@ def train_ensemble(train_data, val_data, input_dim, output_dim, config, DEVICE):
     y_val_gpu = y_val.to(DEVICE)
 
     loss_fn = nn.GaussianNLLLoss()
-    mse_fn = nn.MSELoss() ### NEW: Serve per calcolare l'errore puro
+    mse_fn = nn.MSELoss() 
     trained_model_infos = [] 
     
     os.makedirs("models", exist_ok=True)
 
-    # 2. Loop sui K modelli dell'Ensemble
-    for i in range(config['k_models_total']):
-        
-        print(f"\n--- Sampling Training Data Modello {i+1} ---")
+    # --- BARRA ESTERNA (Loop sui Modelli) ---
+    # Monitora il progresso totale (es. 1/5, 2/5...)
+    pbar_ensemble = tqdm(range(config['k_models_total']), desc="Ensemble Progress", unit="model")
+
+    for i in pbar_ensemble:
         
         # --- IMPLEMENTAZIONE BOOTSTRAPPING ---
         num_samples = len(X_train)
@@ -290,7 +258,7 @@ def train_ensemble(train_data, val_data, input_dim, output_dim, config, DEVICE):
         y_train_boot = y_train[indices]
         
         train_dataset = TensorDataset(X_train_boot, y_train_boot)
-        train_loader = DataLoader(train_dataset, batch_size=config['batch_size'], shuffle=True)
+        train_loader = DataLoader(train_dataset, batch_size=config['batch_size'], shuffle=True, pin_memory=True)
         # -------------------------------------
         
         # Inizializza modello e optimizer
@@ -302,14 +270,25 @@ def train_ensemble(train_data, val_data, input_dim, output_dim, config, DEVICE):
             wandb.watch(model, log="gradients", log_freq=100)
             
         # Setup Early Stopping
-        save_path = f"{config['save_path']}unc_{config['p_name']}_{i}_best.pth"
+        # Correzione path: meglio assicurarsi che la cartella esista
+        save_dir = f"{config['save_path']}unc_{config['p_name']}"
+        os.makedirs(save_dir, exist_ok=True) 
+        save_path = f"{save_dir}/{i}_best.pth"
+        
         stopper = EarlyStopping(patience=config['patience'], save_path=save_path)
         
-        # 3. Training Loop (Epoche)
-        for epoch in range(config['final_epochs']):
+        # --- BARRA INTERNA (Loop Epoche) ---
+        # leave=False fa sparire la barra quando il modello finisce
+        pbar_epochs = tqdm(range(config['final_epochs']), 
+                           desc=f"Model {i+1}/{config['k_models_total']}", 
+                           leave=False,
+                           unit="epoch")
+        
+        for epoch in pbar_epochs:
+            
             model.train()
             epoch_nll_acc = 0.0
-            epoch_mse_acc = 0.0 ### NEW: Accumulatore per MSE
+            epoch_mse_acc = 0.0 
             num_batches = 0
             
             for batch_x, batch_y in train_loader:
@@ -320,17 +299,16 @@ def train_ensemble(train_data, val_data, input_dim, output_dim, config, DEVICE):
                 mu, logvar = model(batch_x)
                 
                 # Calcolo Loss (Gaussian NLL) -> Per l'ottimizzazione
-                loss = loss_fn(mu, batch_y, torch.exp(logvar))
+                loss = loss_fn(mu, batch_y, torch.exp(logvar) + 1e-6)
                 loss.backward()
                 
                 torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
                 optimizer.step()
                 
                 # --- CALCOLI PER LOGGING ---
-                # Usiamo no_grad per risparmiare memoria, calcoliamo MSE puro
                 with torch.no_grad():
                     batch_mse = mse_fn(mu, batch_y)
-                    epoch_mse_acc += batch_mse.item() ### NEW: Aggiornamento accumulatore
+                    epoch_mse_acc += batch_mse.item() 
                 
                 epoch_nll_acc += loss.item()
                 num_batches += 1
@@ -343,26 +321,32 @@ def train_ensemble(train_data, val_data, input_dim, output_dim, config, DEVICE):
             model.eval()
             with torch.no_grad():
                 v_mu, v_logvar = model(X_val_gpu)
-                v_var = torch.exp(v_logvar) ### NEW: Calcolo esplicito varianza per log
+                v_var = torch.exp(v_logvar) 
                 
-                val_nll = loss_fn(v_mu, y_val_gpu, v_var).item()
-                val_mse = mse_fn(v_mu, y_val_gpu).item() ### NEW: Calcolo MSE validation
+                val_nll = loss_fn(v_mu, y_val_gpu, v_var + 1e-6).item()
+                val_mse = mse_fn(v_mu, y_val_gpu).item() 
             
             scheduler.step(val_nll)
 
-            # --- WANDB LOGGING AVANZATO ---
+            # --- AGGIORNAMENTO BARRA TQDM ---
+            # Questo mostra i numeri direttamente sulla barra di caricamento!
+            pbar_epochs.set_postfix({
+                "T_NLL": f"{avg_train_nll:.3f}", 
+                "V_NLL": f"{val_nll:.3f}", 
+                "Best": f"{stopper.best_loss:.3f}"
+            })
+
+            # --- WANDB LOGGING ---
+            # Ho corretto 'ensamble' in 'ensemble' (typo comune)
             metrics = {
-                f"model_{i}/train_nll": avg_train_nll,
-                f"model_{i}/train_mse": avg_train_mse,
-                f"model_{i}/val_nll": val_nll,
-                f"model_{i}/val_mse": val_mse,
-                # Monitoraggio parametri interni
-                f"model_{i}/max_logvar": model.max_logvar.mean().item(),
-                f"model_{i}/min_logvar": model.min_logvar.mean().item(),
-                # Media varianza predetta
-                f"model_{i}/predicted_var_mean": v_var.mean().item(),
-                # Monitoraggio Learning Rate
-                f"model_{i}/lr": optimizer.param_groups[0]['lr'],
+                f"ensemble/train_nll": avg_train_nll,
+                f"ensemble/train_mse": avg_train_mse,
+                f"ensemble/val_nll": val_nll,
+                f"ensemble/val_mse": val_mse,
+                f"ensemble/max_logvar": model.max_logvar.mean().item(),
+                f"ensemble/min_logvar": model.min_logvar.mean().item(),
+                f"ensemble/predicted_var_mean": v_var.mean().item(),
+                f"ensemble/lr": optimizer.param_groups[0]['lr'],
                 "epoch": epoch
             }
             wandb.log(metrics)
@@ -371,10 +355,12 @@ def train_ensemble(train_data, val_data, input_dim, output_dim, config, DEVICE):
             stopper(val_nll, model)
             
             if stopper.early_stop:
-                print(f"  -> Early stopping all'epoca {epoch}. Best Val NLL: {stopper.best_loss:.4f}")
+                # Opzionale: stampa se vuoi evidenziare lo stop
+                # tqdm.write(f"-> Early stop Model {i+1} at epoch {epoch}")
                 break
         
         # 4. Fine training modello corrente
+        # Ricarichiamo i pesi migliori salvati dall'EarlyStopping
         model.load_state_dict(torch.load(save_path))
         
         trained_model_infos.append({
@@ -396,31 +382,38 @@ else:
 DEVICE = torch.device(device_str)
 print(f"Using device: {DEVICE}")
 
-with open(args.data_path, 'r') as f:
+splitted = args.data_test_name.rsplit('_', 1)
+full_data_path = args.data_path + splitted[0] + '/' + args.data_test_name
+print(f"Loading data from {full_data_path}...")
+with open(full_data_path + '_transitions.json', 'r') as f:
     data = json.load(f)
+with open(full_data_path + '_info.json', 'r') as f:
+    info_test = json.load(f)
 
-RAY_PER_DIRECTION = data['metadata']['other_config']['rays_per_direction']
+RAY_PER_DIRECTION = info_test['metadata']['other_config']['rays_per_direction']
 RAYCAST_SIZE = 2*RAY_PER_DIRECTION + 1
-STATE_SIZE = data['metadata']['other_config']['state_observation_size'] - 1
+STATE_SIZE = info_test['metadata']['other_config']['state_observation_size'] - 1
 
-ACTION_SIZE = data['metadata']['other_config']['action_size']
-ACTION_MIN = data['metadata']['other_config']['min_action']
-ACTION_MAX = data['metadata']['other_config']['max_action']
+ACTION_SIZE = info_test['metadata']['other_config']['action_size']
+ACTION_MIN = info_test['metadata']['other_config']['min_action']
+ACTION_MAX = info_test['metadata']['other_config']['max_action']
 
-INPUT_STACK = data['metadata']['train_config']['input_stack']
+INPUT_STACK = info_test['metadata']['train_config']['input_stack']
 TOTAL_STATE_SIZE = (STATE_SIZE + RAYCAST_SIZE)*INPUT_STACK
 
+print(f"Loading actor network")
 actor = OldDenseActor(
     TOTAL_STATE_SIZE,
     ACTION_SIZE,
     ACTION_MIN,
     ACTION_MAX,
-    data['metadata']['test_config']['policy_layers'][data['metadata']['test_config']['policy_names'].index(args.p_name)]
+    info_test['metadata']['test_config']['policy_layers'][info_test['metadata']['test_config']['policy_names'].index(args.p_name)]
 ).to(DEVICE)
+load_models(actor, save_path='./models/' + args.p_name, suffix='_best', DEVICE=DEVICE)
 
 # 1. Dati
 train_data, val_data, test_data, input_dim, output_dim = load_and_split_data(
-                                                    data['data'],
+                                                    data,
                                                     actor,
                                                     RAYCAST_SIZE,
                                                     INPUT_STACK,
@@ -538,6 +531,8 @@ wandb.log({
     "epistemic_uncertainty_mean": epistemic.mean().item()
 })
 
+args.save_path
+
 # ---------------------------------------------------------
 # FASE 5: Salvataggio Finale
 # ---------------------------------------------------------
@@ -551,9 +546,8 @@ checkpoint = {
         "mse": mse.item()
     }
 }
-torch.save(checkpoint, "final_pipeline_metadata.pt")
+torch.save(checkpoint, f"{args.save_path}unc_{args.p_name}/info.pth")
 
-
-# wandb.finish()
+wandb.finish()
 print("PIPELINE COMPLETATA CORRETTAMENTE.")
 

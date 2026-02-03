@@ -36,19 +36,18 @@ def load_models(actor=None,
                 qf_ensemble=None,
                 qf_ensemble_target=None,
                 save_path=None,
-                suffix=''):
+                suffix='',
+                DEVICE='cpu'):
 
     if save_path is None:
         raise ValueError("save_path must be provided")
-
-    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-
+    
     # ===== Actor =====
     if actor is not None:
         actor.load_state_dict(
             torch.load(
                 os.path.join(save_path, f'actor{suffix}.pth'),
-                map_location=device
+                map_location=DEVICE
             )
         )
 
@@ -58,7 +57,7 @@ def load_models(actor=None,
             qf.load_state_dict(
                 torch.load(
                     os.path.join(save_path, f'qf{i+1}{suffix}.pth'),
-                    map_location=device
+                    map_location=DEVICE
                 )
             )
 
@@ -68,7 +67,7 @@ def load_models(actor=None,
             qf.load_state_dict(
                 torch.load(
                     os.path.join(save_path, f'qf{i+1}_target{suffix}.pth'),
-                    map_location=device
+                    map_location=DEVICE
                 )
             )
 

@@ -1,8 +1,7 @@
+policy_names: ["simple_wp_0_4619595", "simple_wp_0_4611772", "simple_wp_1_4599899"]
+policy_layers: [[128,128,128], [512, 256, 256], [256,256,256]]
 
-policy_names: ["basic_1_4205364"]
-policy_layers: [[256, 256, 128]]
-
-obstacles_config_paths: ["./config/obstacles_basic.yaml"]
+obstacles_config_paths: ["./config/obstacles_simple.yaml"]
 
 train_config_path: "./config/train_limo.yaml"
 test_name: "final_check"
