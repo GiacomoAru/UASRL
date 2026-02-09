@@ -29,6 +29,7 @@ def test(env,
          args, 
          agent_config,
          obstacles_config,
+         other_config,
          
          actor,
          
@@ -66,128 +67,148 @@ def test(env,
     cumulative_obs = {}          # per-agent memory (obs, action, uncertainty info)
     running_episodes = {}        # active episodes data
     terminated_episodes = []    # finished episodes
+    angoli_radianti_precalcolati = generate_angles_rad(10, 90)
     
     episodic_stats = {}
     dataset = []                 # collected dataset
         
     while current_episode <= args.total_episodes:
         
-        try:  
-            # --- ENVIRONMENT STEP ---
-            unity_start_time = time.time()
-            if unity_end_time > 0:
-                testing_stats['python_time'].update(unity_start_time - unity_end_time)
-            
-            env.step()
-            
-            unity_end_time = time.time()
-            testing_stats['unity_time'].update(unity_end_time - unity_start_time)
-            
-            obs = collect_data_after_step_id(env, BEHAVIOUR_NAME, STATE_SIZE)
-            
-            for id in obs:
-                agent_obs = obs[id]
 
-                # Handle terminated agents
-                if agent_obs[3] == 1:
-                    if id in cumulative_obs:
-                        # Remove agent from active lists and finalize episode
-                        del cumulative_obs[id]
-                        terminated_episodes.append((agent_obs[4], running_episodes[id])) # tuple (internal_id, episode data)
-                        del running_episodes[id]
-                        
-                    else:
-                        # Agent killed very early
-                        terminated_episodes.append((agent_obs[4], []))
-                        assert id not in running_episodes and id not in cumulative_obs
-                        
+        obs = collect_data_after_step_id(env, BEHAVIOUR_NAME, STATE_SIZE)
+        
+        for id in obs:
+            agent_obs = obs[id]
+
+            # Handle terminated agents
+            if agent_obs[3] == 1:
+                if id in cumulative_obs:
+                    # Remove agent from active lists and finalize episode
+                    del cumulative_obs[id]
+                    terminated_episodes.append((agent_obs[4], running_episodes[id])) # tuple (internal_id, episode data)
+                    del running_episodes[id]
+                    
                 else:
-                    actual_obs = agent_obs[0]
+                    # Agent killed very early
+                    terminated_episodes.append((agent_obs[4], []))
+                    assert id not in running_episodes and id not in cumulative_obs
+                    
+            else:
+                actual_obs = agent_obs[0]
+                    
+                # Initialize new agent entry
+                if id not in cumulative_obs:
+                    cumulative_obs[id] = [
+                        args.decision_frame_period, # steps until next decision
+                        None,   # last obs
+                        None,   # last action taken
+                        0.0,    # last uncertainty estimate
+                        True,   # last UF activation
+                    ]
+                    
+                # Time to decide an action
+                if cumulative_obs[id][0] >= args.decision_frame_period:
+                    cumulative_obs[id][0] = 0
+                    
+                    # Update ray observations with frame stacking
+                    if cumulative_obs[id][1] is None:
+                        cumulative_obs[id][1] = actual_obs
+                        corrected_obs = actual_obs
+                    else:
+                        p1 = cumulative_obs[id][1][RAYCAST_SIZE:RAYCAST_SIZE*STACK_NUMBER]
+                        p2 = cumulative_obs[id][1][RAYCAST_SIZE*STACK_NUMBER + STATE_SIZE:RAYCAST_SIZE*STACK_NUMBER + STATE_SIZE*STACK_NUMBER]
                         
-                    # Initialize new agent entry
-                    if id not in cumulative_obs:
-                        cumulative_obs[id] = [
-                            args.decision_frame_period, # steps until next decision
-                            None,   # last obs
-                            None,   # last action taken
-                        ]
-                        
-                    # Time to decide an action
-                    if cumulative_obs[id][0] >= args.decision_frame_period:
-                        cumulative_obs[id][0] = 0
-                        
-                        # Update ray observations with frame stacking
-                        if cumulative_obs[id][1] is None:
-                            cumulative_obs[id][1] = actual_obs
-                            corrected_obs = actual_obs
-                        else:
-                            p1 = cumulative_obs[id][1][RAYCAST_SIZE:RAYCAST_SIZE*STACK_NUMBER]
-                            p2 = cumulative_obs[id][1][RAYCAST_SIZE*STACK_NUMBER + STATE_SIZE:RAYCAST_SIZE*STACK_NUMBER + STATE_SIZE*STACK_NUMBER]
-                            
-                            corrected_obs = np.concatenate(
-                                [p1,
-                                actual_obs[RAYCAST_SIZE*(STACK_NUMBER - 1):RAYCAST_SIZE*STACK_NUMBER],
-                                p2,
-                                actual_obs[-STATE_SIZE:]]
-                                )
-                        
-                        # Policy action from actor
-                        action, _, _ = actor.get_action(torch.tensor(corrected_obs, dtype=torch.float32, device=DEVICE).unsqueeze(0), args.actor_std)
-                        action = action[0].detach().cpu().numpy()
-                        
-                        
-                        # Update agent memory
-                        cumulative_obs[id][1] = corrected_obs
-                        cumulative_obs[id][2] = action
-                        
-                        # Start new episode if not already tracked
-                        if id not in running_episodes: running_episodes[id] = []
-                        running_episodes[id].append({
-                            'obs': corrected_obs,
-                            # 'u_e': cumulative_obs[id][4],
-                            # 'uf_activation': cumulative_obs[id][5],
-                            'action': action,
-                            'inner_steps': []
-                        })
+                        corrected_obs = np.concatenate(
+                            [p1,
+                            actual_obs[RAYCAST_SIZE*(STACK_NUMBER - 1):RAYCAST_SIZE*STACK_NUMBER],
+                            p2,
+                            actual_obs[-STATE_SIZE:]]
+                            )
+                    
+                    # Policy action from actor
+                    action, _, _ = actor.get_action(torch.tensor(corrected_obs, dtype=torch.float32, device=DEVICE).unsqueeze(0), args.actor_std)
+                    action = action[0].detach().cpu().numpy()
+                    
+                    
+                    # Update agent memory
+                    cumulative_obs[id][1] = corrected_obs
+                    cumulative_obs[id][2] = action
+                    
+                    # Start new episode if not already tracked
+                    if id not in running_episodes: running_episodes[id] = []
+                    running_episodes[id].append({
+                        'obs': corrected_obs,
+                        'u_e': cumulative_obs[id][3],
+                        'uf_activation': cumulative_obs[id][4],
+                        'action': action,
+                        'inner_steps': []
+                    })
 
-                    # Use last predicted action by default
-                    policy_action = cumulative_obs[id][2] 
+                # Use last predicted action by default
+                policy_action = cumulative_obs[id][2] 
 
-                    # Final action selection (UF + CBF logic)
-                    final_action = policy_action
-      
-                    # Debug visualization (optional)
-                    if args.send_debug_action:
-                        env_info.send_agent_action_debug(
-                            agent_obs[4],
-                            
-                            final_action[0], 
-                            final_action[1],
-                            
-                            policy_action[0],
-                            policy_action[1], 
-                            
-                            False, 
-                            0.0, 
-                            0.0,
-                            
-                            False,
-                            0.0,
-                            0.0
-                        ) 
-                                                            
-                    # Apply final action to environment
-                    a = ActionTuple(continuous=np.array([final_action]))
-                    env.set_action_for_agent(
-                        BEHAVIOUR_NAME, id, a
+                # Control Barrier Function (CBF) correction
+                cbf_action = np.zeros(2)
+                if args.cbf:
+                    cbf_action = CBF_from_obs(
+                        actual_obs[RAYCAST_SIZE*(STACK_NUMBER - 1):RAYCAST_SIZE*STACK_NUMBER], 
+                        policy_action,
+                        
+                        3,
+                        1,
+                        90,
+                        
+                        args.d_safe,
+                        args.alpha,
+                        args.d_safe_mul,
+                        
+                        angoli_radianti_precalcolati
                     )
+                        
+                    # Ensure minimum forward velocity
+                    if policy_action[0] > args.cbf_min_forward_velocity:
+                        cbf_action[0] = max(args.cbf_min_forward_velocity, cbf_action[0])
+                    else:
+                        cbf_action[0] = max(policy_action[0], cbf_action[0])
+                            
+                # Check if CBF activated
+                cbf_activation = args.cbf and np.linalg.norm(cbf_action - policy_action) > 1e-06
+                running_episodes[id][-1]['inner_steps'].append([np.linalg.norm(cbf_action - policy_action), cbf_activation])
+                
+                # Final action selection (UF + CBF logic)
+                final_action = policy_action
+                if cumulative_obs[id][4] and cbf_activation:
+                        final_action = cbf_action
+                        
+                # Debug visualization (optional)
+                if args.send_debug_action:
+                    env_info.send_agent_action_debug(
+                        agent_obs[4],
+                        
+                        final_action[0], 
+                        final_action[1],
+                        
+                        policy_action[0],
+                        policy_action[1], 
+                        
+                        cbf_activation, 
+                        cbf_action[0], 
+                        cbf_action[1],
+                        
+                        cumulative_obs[id][4],
+                        0.0,
+                        cumulative_obs[id][3]
+                    ) 
+                                                        
+                # Apply final action to environment
+                a = ActionTuple(continuous=np.array([final_action]))
+                env.set_action_for_agent(
+                    BEHAVIOUR_NAME, id, a
+                )
+                
+                # Increment frame counter
+                cumulative_obs[id][0] += 1
                     
-                    # Increment frame counter
-                    cumulative_obs[id][0] += 1
-                    
-        except Exception as e:
-            print('Execution Ended ?!')
-            traceback.print_exc() 
             
         new_stop_msgs = []
         for msg in env_info.stop_msg_queue:
@@ -215,8 +236,10 @@ def test(env,
                 
                 current_episode += 1
 
+                # Cerca questa parte nel tuo blocco if seed_sent < args.total_episodes:
                 if seed_sent < args.total_episodes:
-                    env_info.send_episode_seed(current_episode - 1 + args.seed)
+                    # CORRETTO: Usa seed_sent come offset, non current_episode
+                    env_info.send_episode_seed(seed_sent + args.seed) 
                     seed_sent += 1
                     
                 # Save data if required
@@ -229,7 +252,17 @@ def test(env,
             
             del terminated_episodes[int(t_episode_index)]
         env_info.stop_msg_queue = new_stop_msgs
-              
+        
+        # --- ENVIRONMENT STEP ---
+        unity_start_time = time.time()
+        if unity_end_time > 0:
+            testing_stats['python_time'].update(unity_start_time - unity_end_time)
+        
+        env.step()
+        
+        unity_end_time = time.time()
+        testing_stats['unity_time'].update(unity_end_time - unity_start_time)
+            
         # Safety check: queue should not grow indefinitely
         if len(env_info.stop_msg_queue) > 10:
             print('ERRORE')
@@ -338,22 +371,26 @@ for obs_config_path in args.obstacles_config_paths:
             p_layers
         ).to(DEVICE)
         load_models(actor, save_path='./models/' + p_name, suffix='_best', DEVICE=DEVICE)
-
-        other_stats, episodic_stats, dataset = test(env, 
-                env_info,
-                param_channel,
-                
-                args,
-                agent_config,
-                obstacles_config,
-                
-                actor, 
-                
-                BEHAVIOUR_NAME,
-                STATE_SIZE,
-                RAYCAST_SIZE,
-                train_config['input_stack'],
-                DEVICE)
+        try:
+            other_stats, episodic_stats, dataset = test(env, 
+                    env_info,
+                    param_channel,
+                    
+                    args,
+                    agent_config,
+                    obstacles_config,
+                    other_config,
+                    
+                    actor, 
+                    
+                    BEHAVIOUR_NAME,
+                    STATE_SIZE,
+                    RAYCAST_SIZE,
+                    train_config['input_stack'],
+                    DEVICE)
+        except:
+            env.close()
+            exit(1)
 
         other_stats['env_name'] = obs_config_path.split('/')[-1].split('.')[0]
         other_stats['policy_name'] = p_name
@@ -394,5 +431,5 @@ for obs_config_path in args.obstacles_config_paths:
                 file.write(json.dumps(convert_all_to_float(d1)))
             with open(specific_save_filepath + '_transitions.json', 'w+') as file:
                 file.write(json.dumps(convert_all_to_float(d2)))
-env.close()
 
+env.close()

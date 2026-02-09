@@ -418,7 +418,16 @@ def str2bool(v):
         return False
     else:
         raise argparse.ArgumentTypeError('Boolean value expected.')
-    
+   
+# Funzione di utilità per parsare stringhe in liste/dizionari
+def str2list(v):
+    if isinstance(v, list):
+        return v
+    try:
+        return json.loads(v.replace("'", '"')) # Sostituisce eventuali ' con " per compatibilità JSON
+    except:
+        raise argparse.ArgumentTypeError('La stringa deve essere nel formato JSON: ["a","b"]')
+     
 def parse_config_file(config_path = './config/train.yaml'):
 
     # 1. Controlla se il file esiste
@@ -445,15 +454,19 @@ def parse_args():
     parser.add_argument("config_path", type=str)
 
     for key, value in file_config_dict.items():
-        # Gestione specifica per i booleani
+        # 1. Gestione specifica per i booleani
         if isinstance(value, bool):
             parser.add_argument(f"--{key}", type=str2bool, default=value)
         
-        # Gestione per None (assumiamo stringa o saltiamo)
+        # 2. Gestione specifica per le LISTE (Aggiunta qui!)
+        elif isinstance(value, list):
+            parser.add_argument(f"--{key}", type=str2list, default=value)
+            
+        # 3. Gestione per None
         elif value is None:
             parser.add_argument(f"--{key}", type=str, default=value)
             
-        # Gestione per tutti gli altri tipi (int, float, str)
+        # 4. Gestione per tutti gli altri tipi (int, float, str)
         else:
             parser.add_argument(f"--{key}", type=type(value), default=value)
         

@@ -1,0 +1,32 @@
+
+policy_names: ["complex_wp_1_4611744"]
+policy_layers: [[512, 256, 256]]
+
+obstacles_config_paths: ["./config/obstacles_complex.yaml"]
+
+train_config_path: "./config/train_limo.yaml"
+test_name: "final_check"
+machine_name: personal
+seed: 123456
+episode_queue_length: 18
+# complex: [complex_1_4165576, complex_0_4090216, complex_1_4124018]
+# simple: 
+
+cuda: 0
+torch_deterministic: true
+build_path: "./unity_build/9xlimotest_wind/UASRL.exe"
+agent_config_path: "./config/agent_test.yaml"
+headless: false
+worker_id: 0
+base_time: 1765457030
+actor_std: 0.95
+
+accumulate_data: true
+
+total_episodes: 5000
+metrics_log_interval: 25
+
+decision_frame_period: 5
+send_debug_action: false
+
+save_path: "./results/"

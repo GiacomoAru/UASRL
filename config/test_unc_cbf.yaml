@@ -1,0 +1,71 @@
+# =========================
+# Experiment Identity
+# =========================
+test_name: "debug_test"
+machine_name: "personal"
+seed: 18618
+base_time: 1765457030
+
+train_config_path: "./config/train_limo.yaml"
+
+# =========================
+# Policies
+# =========================
+policy_names:
+  - "basic_1_4205364"
+  - "simple_0_4164735"
+  - "simple_wp_1_4599899"
+  - "complex_1_4165576"
+  - "complex_wp_1_4611744"
+
+policy_layers:
+  - [256, 256, 128]
+  - [256, 256, 256]
+  - [256, 256, 256]
+  - [256, 256, 256]
+  - [512, 256, 256]
+
+actor_std: 0.95
+
+# =========================
+# Environment / Obstacles
+# =========================
+obstacles_config_paths:
+  - "./config/obstacles_simple.yaml"
+
+build_path: "./unity_build/1xlimotest_wind/UASRL.exe"
+agent_config_path: "./config/agent_test.yaml"
+
+headless: false
+worker_id: 0
+
+decision_frame_period: 5
+send_debug_action: true
+
+# =========================
+# Testing Configuration
+# =========================
+total_episodes: 10
+episode_queue_length: 18
+accumulate_data: true
+
+cbf: true
+d_safe: 0.3
+d_safe_mul: 3
+alpha: 2.0
+cbf_min_forward_velocity: 0.05
+
+uf: true
+uf_action_type: 'distribution' # or sample
+
+# =========================
+# Torch
+# =========================
+cuda: 0
+torch_deterministic: true
+
+# =========================
+# Logging & Saving
+# =========================
+metrics_log_interval: 25
+save_path: "./results/"

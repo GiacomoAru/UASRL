@@ -10,6 +10,7 @@ wandb/
 results/
 remote_results/
 unc_models/
+unc_models_distrib/
 
 # User-specific files
 *.rsuser

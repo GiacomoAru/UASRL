@@ -29,4 +29,4 @@ hudX : 10                    # HUD X position on screen
 hudY : 10                    # HUD Y position on screen
 hudWidth : 320               # HUD width
 hudHeight : 560              # HUD height
-hudScale : 1.0                # HUD text scale factor    
+hudScale : 0.75                # HUD text scale factor    
