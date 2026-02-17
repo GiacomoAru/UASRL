@@ -3,7 +3,7 @@
 # =========================
 test_name: "debug_test"
 machine_name: "personal"
-seed: 22050901
+seed: 2
 base_time: 1765457030
 
 train_config_path: "./config/train_limo.yaml"
@@ -12,18 +12,18 @@ train_config_path: "./config/train_limo.yaml"
 # Policies
 # =========================
 policy_names:
-  - "basic_1_4205364"
+#   - "basic_1_4205364"
   - "simple_0_4164735"
-  - "simple_wp_1_4599899"
-  - "complex_1_4165576"
-  - "complex_wp_1_4611744"
+#  - "simple_wp_1_4599899"
+#  - "complex_1_4165576"
+#  - "complex_wp_1_4611744"
 
 policy_layers:
-  - [256, 256, 128]
+#   - [256, 256, 128]
   - [256, 256, 256]
-  - [256, 256, 256]
-  - [256, 256, 256]
-  - [512, 256, 256]
+#  - [256, 256, 256]
+#  - [256, 256, 256]
+#  - [512, 256, 256]
 
 actor_std: 0.95
 
@@ -31,8 +31,8 @@ actor_std: 0.95
 # Environment / Obstacles
 # =========================
 obstacles_config_paths:
-  - "./config/obstacles_simple.yaml"
   - "./config/obstacles_complex.yaml"
+#  - "./config/obstacles_complex.yaml"
 
 build_path: "./unity_build/1xlimotest_wind/UASRL.exe"
 agent_config_path: "./config/agent_test.yaml"
@@ -41,25 +41,25 @@ headless: false
 worker_id: 0
 
 decision_frame_period: 5
-send_debug_action: false
+send_debug_action: true
 
 # =========================
 # Testing Configuration
 # =========================
-total_episodes: 1
+total_episodes: 1000
 episode_queue_length: 18
 accumulate_data: true
 
 cbf: true
-d_safe: 0.3
+d_safe: 0.15
 d_safe_mul: 3
 alpha: 2.0
 cbf_min_forward_velocity: 0.05
 
 uf: true
-ut: 0.01
-ue_path: './unc_models_distrib/'
-ue_action_type: 'distribution' # or sample
+ut: 0.75
+ue_path: './unc_models_sample/'
+ue_action_type: 'sample' # or sample
 
 # =========================
 # Torch

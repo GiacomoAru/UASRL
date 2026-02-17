@@ -146,11 +146,11 @@ class OldDenseActor(nn.Module):
 
             mean_action = torch.tanh(mean) * self.action_scale + self.action_bias
             
-            return action, log_prob, mean_action
+            return action, log_prob, mean_action, mean, log_std
         
         else:
             mean_action = torch.tanh(mean) * self.action_scale + self.action_bias
-            return mean_action, -torch.inf, mean_action
+            return mean_action, -torch.inf, mean_action, mean, log_std
   
   
   
@@ -418,16 +418,7 @@ def str2bool(v):
         return False
     else:
         raise argparse.ArgumentTypeError('Boolean value expected.')
-   
-# Funzione di utilità per parsare stringhe in liste/dizionari
-def str2list(v):
-    if isinstance(v, list):
-        return v
-    try:
-        return json.loads(v.replace("'", '"')) # Sostituisce eventuali ' con " per compatibilità JSON
-    except:
-        raise argparse.ArgumentTypeError('La stringa deve essere nel formato JSON: ["a","b"]')
-     
+    
 def parse_config_file(config_path = './config/train.yaml'):
 
     # 1. Controlla se il file esiste
@@ -457,11 +448,7 @@ def parse_args():
         # 1. Gestione specifica per i booleani
         if isinstance(value, bool):
             parser.add_argument(f"--{key}", type=str2bool, default=value)
-        
-        # 2. Gestione specifica per le LISTE (Aggiunta qui!)
-        elif isinstance(value, list):
-            parser.add_argument(f"--{key}", type=str2list, default=value)
-            
+
         # 3. Gestione per None
         elif value is None:
             parser.add_argument(f"--{key}", type=str, default=value)
@@ -776,13 +763,17 @@ def organize_observations(raw_observations, num_tags):
     selected = raw_observations[features_per_ray - 1::features_per_ray]
     return selected
 
-def collect_data_after_step(environment, BEHAVIOUR_NAME, STATE_SIZE):
+def collect_data_after_step(environment, BEHAVIOUR_NAME, STATE_SIZE, 
+                            
+                            internal_id = False,
+                            cost_signal=False):
     decision_steps, terminal_steps = environment.get_steps(BEHAVIOUR_NAME)
     
     obs = {}
     
     for id in decision_steps:
         decision_step = decision_steps[id]
+        
         # agent_id, obs, reward, action, done
         state = np.concatenate([organize_observations(decision_step.obs[0], 2),
                                 decision_step.obs[1].reshape(-1, STATE_SIZE + 1)[:,1:].flatten()])
@@ -791,6 +782,7 @@ def collect_data_after_step(environment, BEHAVIOUR_NAME, STATE_SIZE):
                    decision_step.reward,
                    None,
                    0]
+
     
     for id in terminal_steps:
         terminal_step = terminal_steps[id]

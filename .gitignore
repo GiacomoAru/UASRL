@@ -11,6 +11,7 @@ results/
 remote_results/
 unc_models/
 unc_models_distrib/
+unc_models_sample/
 
 # User-specific files
 *.rsuser

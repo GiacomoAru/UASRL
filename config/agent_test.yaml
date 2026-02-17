@@ -20,9 +20,9 @@ print_debug : false           # Enable debug logging
 print_every_step : 10000          # Frequency of debug prints
 obstacle_test : false         # Enable manual obstacle testing
 ema_debug : false             # Enable EMA visualization
-cbf_debug : false             # Enable CBF visualization
-action_debug : false          # Enable drawing of action arrows
-hud_debug : false             # Enable on-screen HUD debug display
+cbf_debug : true             # Enable CBF visualization
+action_debug : true          # Enable drawing of action arrows
+hud_debug : false              # Enable on-screen HUD debug display
 
 # --- HUD SETTINGS ---
 hudX : 10                    # HUD X position on screen

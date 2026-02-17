@@ -1,9 +1,9 @@
-policy_names: ["simple_wp_1_4599899"]
-policy_layers: [[256,256,256]]
-obstacles_config_paths: ["./config/obstacles_simple.yaml"]
+policy_names: ["basic_1_4205364"]
+policy_layers: [[256,256,128]]
+obstacles_config_paths: ["./config/obstacles_basic.yaml"]
 
 train_config_path: "./config/train_limo.yaml"
-test_name: "SIMPLEWP_UE_THR"
+test_name: "BASIC_UE_THR"
 machine_name: remote
 seed: 989877
 episode_queue_length: 18
@@ -13,7 +13,7 @@ torch_deterministic: true
 build_path: "./9xlimotest_linux/UASRL.x86_64"
 agent_config_path: "./config/agent_test.yaml"
 headless: true
-worker_id: 2
+worker_id: 0
 base_time: 1765457030
 actor_std: 0.95
 
@@ -34,4 +34,6 @@ alpha: 2.0
 cbf_min_forward_velocity: 0.05
 
 uf: false
-uf_action_type: 'distribution' # or sample
+ut: 1
+ue_path: './unc_models_distrib/'
+ue_action_type: 'distribution' # or sample

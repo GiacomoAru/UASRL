@@ -27,25 +27,17 @@ def sample_log_uniform(a, b):
     return 10 ** random.uniform(math.log10(a), math.log10(b))
 
 def sample_hparams():
+    # Definiamo prima il base_lr per coerenza degli altri parametri
+    base_lr = sample_log_uniform(1e-5, 3e-3)
+
     return {
-        "lr": sample_log_uniform(1e-5, 3e-3),
-        "tau": random.uniform(0.003, 0.02),
+        "lr": base_lr,
+        "tau": random.uniform(0.003, 0.025),
         "target_entropy": random.uniform(-4.0, -1.5),
-        "policy_frequency": random.choice([1, 2, 3, 4]),
-        "network_layers": random.choice([
-            [128,128,128],
-            [256,256,256],
-            [256,256,128],
-            [512,256,256],
-        ]),
-
-        # NUOVI IMPORTANTI
+        "policy_frequency": random.choice([1, 2, 3]),
         "batch_size": random.choice([128, 256, 512]),
-        "gamma": random.uniform(0.985, 0.999),
-        "learning_starts": random.randint(1000, 8000),
-        "update_frequency": random.choice([1, 2, 4]),
+        "gamma": random.uniform(0.98, 0.999),
     }
-
 
 def train(args, agent_config, obstacles_config, other_config):
     
@@ -113,7 +105,7 @@ def train(args, agent_config, obstacles_config, other_config):
             # Set the wandb entity where your project will be logged (generally your team name).
             entity="giacomo-aru",
             # Set the wandb project where this run will be logged.
-            project="UASRL",
+            project="UARSL_NEXT",
             # force the 
             name=args.run_name,
             # Track hyperparameters and run metadata.
@@ -252,16 +244,11 @@ def train(args, agent_config, obstacles_config, other_config):
                 
                 # algo logic
                 if global_step < args.learning_starts * 2:
-                    # change this to use the handcrafted starting policy or a previously trained policy
-                    
                     action = get_initial_action(id)
-                    # action, _, _ = old_actor.get_action(torch.Tensor([obs[id][0]]), 
-                    #                                 torch.Tensor([obs[id][1]]),
-                    #                                 0.5)
-                    # action = action[0].detach().numpy()
                 else:
                     # training policy
-                    action, _, _ = actor.get_action(torch.Tensor([obs[id][0]]).to(DEVICE))
+                    obs_tensor = torch.from_numpy(agent_obs[0]).float().unsqueeze(0).to(DEVICE)
+                    action, _, _, _, _ = actor.get_action(obs_tensor)
                     action = action[0].detach().cpu().numpy()
                 
                 # memorize the action taken for the next step
@@ -344,13 +331,9 @@ def train(args, agent_config, obstacles_config, other_config):
                         
                     with torch.no_grad():
                         # Compute target action with exploration noise
-                        next_action, next_log_pi, _ = actor.get_action(
+                        next_action, next_log_pi, _, _, _ = actor.get_action(
                             data.next_observations
                         )
-
-                        if args.noise_clip > 0:
-                            noise = torch.randn_like(next_action) * args.noise_clip
-                            next_action = torch.clamp(next_action + noise, -1, 1)
 
                         # Compute target Q-value (min over ensemble)
                         target_q_values = []
@@ -396,7 +379,7 @@ def train(args, agent_config, obstacles_config, other_config):
                     # Delayed policy (actor) update
                     if global_step % args.policy_frequency == 0:
                         for _ in range(args.policy_frequency):
-                            pi, log_pi, _ = actor.get_action(data.observations)
+                            pi, log_pi, _, _, _ = actor.get_action(data.observations)
                             actor_entropy = - (log_pi.exp() * log_pi).sum(dim=-1).mean()
 
                             q_pi_vals = [q(data.observations, pi) for q in qf_ensemble]
@@ -421,7 +404,7 @@ def train(args, agent_config, obstacles_config, other_config):
                             # Automatic entropy tuning (if enabled)
                             if args.autotune:
                                 with torch.no_grad():
-                                    _, log_pi, _ = actor.get_action(data.observations)
+                                    _, log_pi, _, _, _ = actor.get_action(data.observations)
                                 alpha_loss = (-log_alpha * (log_pi + target_entropy)).mean()
 
                                 a_optimizer.zero_grad()
@@ -504,19 +487,17 @@ while run_id < 1000:
     print(f"\n=== RUN {run_id} ===")
     print(combo)
 
+    # Parametri standard SAC
     args.policy_lr = combo['lr']
     args.q_lr = combo['lr']
     args.alpha_lr = combo['lr']
-
-    args.actor_network_layers = combo['network_layers']
+    
     args.tau = combo['tau']
     args.policy_frequency = combo['policy_frequency']
     args.target_entropy = combo['target_entropy']
-    
     args.batch_size = combo['batch_size']
     args.gamma = combo['gamma']
-    args.learning_starts = combo['learning_starts']
-    args.update_frequency = combo['update_frequency']
 
+    # Avvio del processo di training
     train(args, agent_config, obstacles_config, other_config)
     run_id += 1

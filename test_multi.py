@@ -18,6 +18,7 @@ from stable_baselines3.common.buffers import ReplayBuffer
 
 from training_utils import *
 from testing_utils import *
+from uncertainty_utils import *
 
 # [markdown]
 #  Testing Function
@@ -32,6 +33,8 @@ def test(env,
          other_config,
          
          actor,
+         unc_ensamble,
+         unc_enamble_norm_stats,
          
          BEHAVIOUR_NAME,
          STATE_SIZE,
@@ -47,7 +50,7 @@ def test(env,
     apply_unity_settings(param_channel, obstacles_config, 'obs_')
 
     print('Resetting environment...')
-    env.reset() 
+    env.reset()
     env_info.clear_queue()
     
     print('Sending initial episode seeds...')
@@ -55,11 +58,17 @@ def test(env,
         env_info.send_episode_seed(i+args.seed) # semplice seeding per ogni episodio
     seed_sent = args.episode_queue_length
 
+    if args.uf:
+        idc_unc_percentile = int(torch.argmin(torch.abs(unc_enamble_norm_stats['percentile_levels'] - args.ut)))
+        print(f"Using {unc_enamble_norm_stats['percentile_levels'][idc_unc_percentile]} Percentile for Uncertainty")
+        print(f"\treal value: {unc_enamble_norm_stats['epistemic']['percentiles'][idc_unc_percentile]}")
     start_time = time.time()
-    unity_end_time = -1
-    unity_start_time = -1
+    prev_time = -1
+    
     testing_stats = {
-        "python_time": RunningMean(),
+        "cbf_time": RunningMean(),
+        "uf_time": RunningMean(),
+        "policy_time": RunningMean(),
         "unity_time": RunningMean(),
     }
     
@@ -102,7 +111,7 @@ def test(env,
                         args.decision_frame_period, # steps until next decision
                         None,   # last obs
                         None,   # last action taken
-                        0.0,    # last uncertainty estimate
+                        0.0,    # last epistemic estimate
                         True,   # last UF activation
                     ]
                     
@@ -124,12 +133,35 @@ def test(env,
                             p2,
                             actual_obs[-STATE_SIZE:]]
                             )
-                    
+                        
                     # Policy action from actor
-                    action, _, _ = actor.get_action(torch.tensor(corrected_obs, dtype=torch.float32, device=DEVICE).unsqueeze(0), args.actor_std)
-                    action = action[0].detach().cpu().numpy()
+                    prev_time = time.time()
+                    action_torch, _, _, action_mean, action_std = actor.get_action(torch.tensor(corrected_obs, dtype=torch.float32, device=DEVICE).unsqueeze(0), args.actor_std)
+                    action = action_torch[0].detach().cpu().numpy()
+                    testing_stats['policy_time'].update(time.time() - prev_time)
                     
-                    
+                    if args.uf: 
+                        prev_time = time.time()
+                        obs_tensor = torch.tensor(corrected_obs, dtype=torch.float32, device=DEVICE).unsqueeze(0)
+                        if args.ue_action_type == 'distribution':
+                            ue_input = torch.cat((obs_tensor, action_mean, action_std), dim=1).to(dtype=torch.float32, device=DEVICE)
+                            # ue_input = torch.tensor(ue_input, dtype=torch.float32, device=DEVICE)
+                        else:
+                            ue_input = torch.cat((obs_tensor, action_torch), dim=1).to(dtype=torch.float32, device=DEVICE)
+                            # ue_input = torch.tensor(ue_input, dtype=torch.float32, device=DEVICE).unsqueeze(0)
+                        
+                        aleatoric_unc, epistemic_unc = predict_uncertainty(unc_ensamble, ue_input)
+                        
+                        # Calcolo vettorizzato su GPU
+                        # z_score_tensor = (epistemic_unc - unc_enamble_norm_stats['epistemic']['mean']) / unc_enamble_norm_stats['epistemic']['std']
+                        
+                        # 5. Salvataggio
+                        epistemic_unc = epistemic_unc.item() # Estrae il float dal tensore (1,)
+                        
+                        cumulative_obs[id][3] = epistemic_unc
+                        cumulative_obs[id][4] = epistemic_unc > unc_enamble_norm_stats['epistemic']['percentiles'][idc_unc_percentile]
+                        testing_stats['uf_time'].update(time.time() - prev_time)
+                        
                     # Update agent memory
                     cumulative_obs[id][1] = corrected_obs
                     cumulative_obs[id][2] = action
@@ -150,6 +182,7 @@ def test(env,
                 # Control Barrier Function (CBF) correction
                 cbf_action = np.zeros(2)
                 if args.cbf:
+                    prev_time = time.time()
                     cbf_action = CBF_from_obs(
                         actual_obs[RAYCAST_SIZE*(STACK_NUMBER - 1):RAYCAST_SIZE*STACK_NUMBER], 
                         policy_action,
@@ -164,6 +197,7 @@ def test(env,
                         
                         angoli_radianti_precalcolati
                     )
+                    testing_stats['cbf_time'].update(time.time() - prev_time)
                         
                     # Ensure minimum forward velocity
                     if policy_action[0] > args.cbf_min_forward_velocity:
@@ -196,7 +230,7 @@ def test(env,
                         cbf_action[1],
                         
                         cumulative_obs[id][4],
-                        0.0,
+                        unc_enamble_norm_stats['epistemic']['percentiles'][idc_unc_percentile],
                         cumulative_obs[id][3]
                     ) 
                                                         
@@ -254,22 +288,17 @@ def test(env,
         env_info.stop_msg_queue = new_stop_msgs
         
         # --- ENVIRONMENT STEP ---
-        unity_start_time = time.time()
-        if unity_end_time > 0:
-            testing_stats['python_time'].update(unity_start_time - unity_end_time)
-        
+        prev_time = time.time()
         env.step()
-        
-        unity_end_time = time.time()
-        testing_stats['unity_time'].update(unity_end_time - unity_start_time)
+        testing_stats['unity_time'].update(time.time() - prev_time)
             
         # Safety check: queue should not grow indefinitely
         if len(env_info.stop_msg_queue) > 10:
             print('ERRORE')
             raise AssertionError('Unexpected queue growth')
-        
-    testing_stats["unity_time"] = testing_stats["unity_time"].mean
-    testing_stats["python_time"] = testing_stats["python_time"].mean
+    
+    for key in testing_stats:
+        testing_stats[key] = testing_stats[key].mean
     testing_stats["ep_count"] = len(dataset)
     
     return testing_stats, episodic_stats, dataset
@@ -322,7 +351,7 @@ print(f"Using device: {DEVICE}")
 # seeding
 random.seed(args.seed)
 np.random.seed(args.seed)
-torch.manual_seed(args.seed)
+torch.manual_seed(args.seed) 
 torch.backends.cudnn.deterministic = args.torch_deterministic
 print(f'Seed: {args.seed}')
 
@@ -341,13 +370,18 @@ env = UnityEnvironment(args.build_path,
 print('Unity Environment connected.')
 if args.episode_queue_length > args.total_episodes:
     args.episode_queue_length = args.total_episodes
+
+if type(args.obstacles_config_path) == str:
+    args.obstacles_config_path = [args.obstacles_config_path]
+for obs_config_path in args.obstacles_config_path:
     
-for obs_config_path in args.obstacles_config_paths:
     obstacles_config = parse_config_file(obs_config_path)
     print('obstacles_config:')
     pprint(obstacles_config)
     
-    for p_name, p_layers in zip(args.policy_names, args.policy_layers):
+    if type(args.policy_names) == str:
+        args.policy_names = [args.policy_names]
+    for p_name in args.policy_names:
         
         additional_number = int(time.time()) - train_config["base_time"]
         test_name = f"{args.test_name}_{additional_number}"
@@ -368,9 +402,22 @@ for obs_config_path in args.obstacles_config_paths:
             ACTION_SIZE,
             ACTION_MIN,
             ACTION_MAX,
-            p_layers
+            args.policy_layers
         ).to(DEVICE)
         load_models(actor, save_path='./models/' + p_name, suffix='_best', DEVICE=DEVICE)
+        
+        if args.uf:
+            if args.ue_action_type == 'distribution':
+                ens_input_dim = (21 + 7)*4 + 4
+            else:
+                ens_input_dim = (21 + 7)*4 + 2
+            
+            ue = load_trained_ensemble(args.ue_path + 'unc_' + p_name, ens_input_dim, (21 + 7), DEVICE)[0]
+            ue_norm = torch.load(args.ue_path + 'unc_' + p_name + '/norm.pth', map_location=DEVICE)
+        else:
+            ue = None
+            ue_norm = None
+            
         try:
             other_stats, episodic_stats, dataset = test(env, 
                     env_info,
@@ -382,19 +429,33 @@ for obs_config_path in args.obstacles_config_paths:
                     other_config,
                     
                     actor, 
+                    ue,
+                    ue_norm,
                     
                     BEHAVIOUR_NAME,
                     STATE_SIZE,
                     RAYCAST_SIZE,
                     train_config['input_stack'],
                     DEVICE)
-        except:
+            
+        except Exception as e:
+            # 1. Messaggio semplice
+            print(f"Si è verificato un errore durante l'esecuzione: {e}")
+            
+            # 2. (Opzionale) Stampa il percorso completo dell'errore (Traceback)
+            # Questo ti dice anche la riga esatta del file dove è successo il problema
+            traceback.print_exc()
+            
+            # Chiudiamo l'ambiente e usciamo
             env.close()
             exit(1)
-
+            
         other_stats['env_name'] = obs_config_path.split('/')[-1].split('.')[0]
         other_stats['policy_name'] = p_name
         other_stats['test_name'] = args.test_full_name
+        
+        other_stats['ut'] = args.ut
+        other_stats['ue_action_type'] = args.ue_action_type
         
         print(f'Saving summary data to: {specific_save_filepath}')
         save_stats_to_csv(other_stats, episodic_stats, summary_save_filepath)

@@ -3,7 +3,7 @@
 # ==========================================
 # obstacles_total_width: 40       # Larghezza totale dell'area ostacoli
 # wall_height: 2                  # Altezza dei muri
-wall_resolution: 25             # Risoluzione della mesh/grid dei muri
+wall_resolution: 24             # Risoluzione della mesh/grid dei muri
 external_walls: true            # Se creare o meno le pareti perimetrali
 spawn_away_from_walls: false
 
@@ -22,9 +22,9 @@ clear_threshold: 3              # Vicini massimi per rimuovere un muro (isole)
 # ==========================================
 # 3. OSTACOLI DINAMICI
 # ==========================================
-moving_obstacles_count: 0       # Numero di ostacoli mobili nell'ambiente
+# moving_obstacles_count: 0       # Numero di ostacoli mobili nell'ambiente
 
 # ==========================================
 # 4. DEBUG E SVILUPPO
 # ==========================================
-debug: true
+# debug: false

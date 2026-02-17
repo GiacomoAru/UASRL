@@ -3,7 +3,7 @@
 # ==========================================
 # obstacles_total_width: 40       # Larghezza totale dell'area ostacoli
 # wall_height: 2                  # Altezza dei muri
-wall_resolution: 25             # Risoluzione della mesh/grid dei muri
+wall_resolution: 24             # Risoluzione della mesh/grid dei muri
 external_walls: true            # Se creare o meno le pareti perimetrali
 spawn_away_from_walls: false
 
@@ -11,10 +11,10 @@ spawn_away_from_walls: false
 # 2. ALGORITMO DI GENERAZIONE (PROCEDURALE)
 # ==========================================
 # Parametri Cellular Automata
-initial_fill_percentage: 0.45   # Densità iniziale (modificato dal Curriculum Learning)
-smoothing_iterations: 3         # Passaggi di smoothing per pulire la mappa
+initial_fill_percentage: 0.0   # Densità iniziale (modificato dal Curriculum Learning)
+smoothing_iterations: 2         # Passaggi di smoothing per pulire la mappa
 fill_threshold: 6               # Vicini necessari per creare un muro
-clear_threshold: 3              # Vicini massimi per rimuovere un muro (isole)
+clear_threshold: 2              # Vicini massimi per rimuovere un muro (isole)
 
 # Validazione
 # check_path_try: 25              # Tentativi massimi per garantire un percorso valido
@@ -22,9 +22,9 @@ clear_threshold: 3              # Vicini massimi per rimuovere un muro (isole)
 # ==========================================
 # 3. OSTACOLI DINAMICI
 # ==========================================
-moving_obstacles_count: 0       # Numero di ostacoli mobili nell'ambiente
+# moving_obstacles_count: 0       # Numero di ostacoli mobili nell'ambiente
 
 # ==========================================
 # 4. DEBUG E SVILUPPO
 # ==========================================
-debug: true
+# debug: false

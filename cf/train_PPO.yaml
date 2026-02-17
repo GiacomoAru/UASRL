@@ -1,0 +1,61 @@
+# ==========================================
+# 1. SETUP ESPERIMENTO E HARDWARE
+# ==========================================
+exp_name: "final_tr_ppo"
+machine_name: "personal"
+seed: 33
+cuda: 0                 # indice gpu o -1 per cpu
+torch_deterministic: true # PPO beneficia del determinismo per la stabilità
+wandb: true
+worker_id: 0
+
+# ==========================================
+# 2. AMBIENTE E CONFIGURAZIONE UNITY
+# ==========================================
+env_id: "3xlimo"
+# Nota: n_envs è rilevato automaticamente da UnityEnvironment, ma qui è utile per riferimento
+build_path: "./unity_build/3xlimo_1502_wind/UASRL.exe"
+headless: false
+test_lib: false
+base_time: 1765457030
+
+# Percorsi configurazioni specifiche
+agent_config_path: "./cf/agent.yaml"
+obstacles_config_path: "./cf/obstacles_simple.yaml"
+other_config_path: "./cf/other.yaml"
+
+# ==========================================
+# 3. TRAINING FLOW (ROLLOUTS)
+# ==========================================
+total_timesteps: 500000 # PPO è on-policy, richiede più step totali rispetto a SAC
+# num_steps: 2048         # Step raccolti per ogni agente prima di un update (Rollout buffer size)
+
+# ==========================================
+# 4. ARCHITETTURA RETI NEURALI
+# ==========================================
+input_stack: 4
+hidden_dim: 256         # Dimensione layer nascosti (usato sia per Actor che Critic)
+
+# ==========================================
+# 5. IPERPARAMETRI PPO
+# ==========================================
+# learning_rate: 0.0003
+anneal_lr: true         # Se true, riduce linearmente il LR fino a 0 a fine training
+
+gamma: 0.99             # Discount factor
+gae_lambda: 0.95        # Generalized Advantage Estimation (bilancia bias/variance)
+# clip_coef: 0.2          # Epsilon di clipping per la PPO loss (es. 0.1 - 0.2)
+# ent_coef: 0.01          # Coefficiente entropia (incoraggia l'esplorazione)
+vf_coef: 0.5            # Peso della Loss della Value Function (Critic)
+max_grad_norm: 0.5
+
+# ==========================================
+# 6. LOGICA DI AGGIORNAMENTO
+# ==========================================
+update_epochs: 10       # Quante volte (epoche) riutilizzare i dati raccolti per aggiornare le reti
+
+# ==========================================
+# 7. LOGGING
+# ==========================================
+metrics_log_interval: 20       # Ogni quanti episodi loggare le statistiche
+metrics_smoothing: 0.98        # Smoothing esponenziale per i grafici
