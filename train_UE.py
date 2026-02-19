@@ -261,7 +261,7 @@ actor = OldDenseActor(
     ACTION_SIZE,
     ACTION_MIN,
     ACTION_MAX,
-    info_test['metadata']['test_config']['policy_layers'][info_test['metadata']['test_config']['policy_names'].index(args.p_name)]
+    [256, 256, 256]
 ).to(DEVICE)
 load_models(actor, save_path='./models/' + args.p_name, suffix='_best', DEVICE=DEVICE)
 

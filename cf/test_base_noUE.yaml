@@ -29,17 +29,16 @@ policy_names:
   - "NEW_TR_LAGPPOSIMPLE_5964794"
   - "NEW_TR_LAGPPOSIMPLE_5964789"
 
+policy_layers: [256, 256, 256]
 actor_std: 0.95
 
 # =========================
 # Environment / Obstacles
 # =========================
-obstacles_config_path:
-  - "./cf/obstacles_simple_safw.yaml"
-#  - "./config/obstacles_complex.yaml"
+obstacles_config_path: "./cf/obstacles_simple_safw.yaml"
 
 build_path: "./unity_build/1xlimotest_1502_wind/UASRL.exe"
-agent_config_path: "./cf/agent_debug_sfg.yaml"
+agent_config_path: "./cf/agent_test_sfg.yaml"
 
 headless: false
 worker_id: 0
@@ -50,19 +49,19 @@ send_debug_action: true
 # =========================
 # Testing Configuration
 # =========================
-total_episodes: 2
+total_episodes: 2000
 episode_queue_length: 18
 accumulate_data: true
 
-cbf: true
-d_safe: 0.15
+cbf: false
+d_safe: 0.2
 d_safe_mul: 3
-alpha: 2.0
-cbf_min_forward_velocity: 0.05
+alpha: 1.5
+cbf_min_forward_velocity: 0.0
 
 uf: false
 ut: 0.75
-ue_path: './unc_models/'
+ue_path: './UE/'
 ue_action_type: 'sample' # or sample
 
 # =========================

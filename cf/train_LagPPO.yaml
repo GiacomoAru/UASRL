@@ -20,8 +20,8 @@ test_lib: false
 base_time: 1765457030
 
 # Percorsi configurazioni specifiche
-agent_config_path: "./cf/agent.yaml"
-obstacles_config_path: "./cf/obstacles_simple.yaml"
+agent_config_path: "./cf/agent_train_sfg.yaml"
+obstacles_config_path: "./cf/obstacles_simple_safw.yaml"
 other_config_path: "./cf/other.yaml"
 
 # ==========================================
@@ -49,6 +49,13 @@ clip_coef: 0.2          # Epsilon di clipping per la PPO loss (es. 0.1 - 0.2)
 ent_coef: 0.001          # Coefficiente entropia (incoraggia l'esplorazione)
 vf_coef: 0.5            # Peso della Loss della Value Function (Critic)
 max_grad_norm: 0.5
+
+# lagrangian var
+cost_limit: 10.0       # Uguale al safety_threshold di SAC
+cost_vf_coef: 0.5      # Valore standard per bilanciare la loss
+init_lambda: 0.01      # Inizio "soft" come in SAC
+lambda_lr: 0.05        # MOLTO più alto di SAC (vedi spiegazione sotto)
+d_safe: 0.3            # Invariato (è una proprietà fisica dell'ambiente)
 
 # ==========================================
 # 6. LOGICA DI AGGIORNAMENTO

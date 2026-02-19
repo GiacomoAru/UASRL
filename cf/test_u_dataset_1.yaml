@@ -1,9 +1,9 @@
 # =========================
 # Experiment Identity
 # =========================
-test_name: "debug_test"
+test_name: "name"
 machine_name: "personal"
-seed: 90908878
+seed: 793792384
 base_time: 1765457030
 
 train_config_path: "./cf/train_SAC.yaml"
@@ -12,49 +12,37 @@ train_config_path: "./cf/train_SAC.yaml"
 # Policies
 # =========================
 policy_names:
-#  - NEW_TR_BASE_5746072
-#  - NEW_TR_SIMPLE_5770545
-#  - NEW_TR_SIMPLEWP_5819553
+  - "NEW_TR_BASE_5746072"
+#  - "NEW_TR_SIMPLE_5770545"
+#  - "NEW_TR_SIMPLEWP_5819553"
+#  - "NEW_TR_SIMPLE_EASY_5804798"
+#  - "NEW_TR_SIMPLEWP_EASY_5841772"
 
-#  - NEW_TR_SIMPLE_EASY_5804798
-#  - NEW_TR_SIMPLEWP_EASY_5841772
-
-#  - NEW_TR_LAGSAC_5750993
-#  - NEW_TR_LAGSACSIMPLE_5832028
-
-#  - "NEW_TR_PPOBASE_5944633"
-#  - "NEW_TR_PPOSIMPLE_5944628"
-#  - "NEW_TR_PPOSIMPLE_5944623"
-
-  - "NEW_TR_LAGPPOSIMPLE_5964794"
-  - "NEW_TR_LAGPPOSIMPLE_5964789"
-
+policy_layers: [256, 256, 256]
 actor_std: 0.95
 
 # =========================
 # Environment / Obstacles
 # =========================
-obstacles_config_path:
-  - "./cf/obstacles_simple_safw.yaml"
-#  - "./config/obstacles_complex.yaml"
+obstacles_config_path: "./cf/obstacles_simple.yaml"
 
 build_path: "./unity_build/1xlimotest_1502_wind/UASRL.exe"
-agent_config_path: "./cf/agent_debug_sfg.yaml"
+agent_config_path: "./cf/agent_test.yaml"
 
 headless: false
 worker_id: 0
 
 decision_frame_period: 5
-send_debug_action: true
+send_debug_action: false
 
 # =========================
 # Testing Configuration
 # =========================
-total_episodes: 2
+total_episodes: 1000
 episode_queue_length: 18
 accumulate_data: true
 
-cbf: true
+cbf: false
 d_safe: 0.15
 d_safe_mul: 3
 alpha: 2.0
@@ -62,17 +50,17 @@ cbf_min_forward_velocity: 0.05
 
 uf: false
 ut: 0.75
-ue_path: './unc_models/'
+ue_path: './unc_models_sample/'
 ue_action_type: 'sample' # or sample
 
 # =========================
 # Torch
 # =========================
 cuda: 0
-torch_deterministic: true
+torch_deterministic: false
 
 # =========================
 # Logging & Saving
 # =========================
-metrics_log_interval: 25
+metrics_log_interval: 50
 save_path: "./results/"

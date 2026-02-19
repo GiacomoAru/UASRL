@@ -3,6 +3,7 @@ import json
 import math
 from collections import defaultdict
 
+from ipykernel import control
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -21,151 +22,167 @@ from matplotlib.lines import Line2D
 import pandas as pd
 import numpy as np
 
+import pandas as pd
+import matplotlib.pyplot as plt
+import numpy as np
+import os
 
-def plotta_confronto_csv_final(lista_paths, righe_da_saltare, colonna_ordinamento, colonne_da_plottare=None):
+def plotta_confronto_csv_final(lista_paths, colonna_ordinamento, colonne_da_plottare=None):
     """
-    Args:
-        lista_paths (list): Lista dei path dei file CSV.
-        righe_da_saltare (int): Righe di DATI da saltare (l'header viene letto sempre dalla prima riga).
-        colonna_ordinamento (str): Nome della colonna per l'asse X.
-        colonne_da_plottare (list, optional): Lista di nomi di metriche da filtrare. 
-                                              Es: ['reward', 'loss']. Se None, plotta tutto.
+    Legge, elabora e confronta i dati da diversi file CSV, generando dei grafici a barre.
+    Gestisce automaticamente file con lunghezze diverse e aggiunge i valori sulle barre.
     """
     
     dataframes = []
     nomi_file = []
     
-    # --- 1. CARICAMENTO E PULIZIA ---
+    # --- 1. CARICAMENTO E PREPARAZIONE ASSE X GLOBALE ---
     print(f"--- Inizio elaborazione ---")
     
+    tutti_i_valori_x = set() 
+
     for path in lista_paths:
         try:
-            # Leggiamo tutto, rilevando automaticamente il separatore
             df = pd.read_csv(path, sep=None, engine='python')
-            df.columns = df.columns.str.strip() # Rimuove spazi dai nomi colonne
-            
-            # Taglio righe iniziali (fase di warm-up)
-            if righe_da_saltare > 0:
-                if len(df) > righe_da_saltare:
-                    df = df.iloc[righe_da_saltare:].reset_index(drop=True)
-                else:
-                    print(f"Skip file {path}: troppo corto.")
-                    continue
+            df.columns = df.columns.str.strip()
 
-            # Controllo colonna ordinamento
             if colonna_ordinamento not in df.columns:
-                print(f"ERRORE: '{colonna_ordinamento}' non trovata in {os.path.basename(path)}")
-                return
+                print(f"ATTENZIONE: '{colonna_ordinamento}' non trovata in {os.path.basename(path)}. Salto questo file.")
+                continue
 
-            df = df.sort_values(by=colonna_ordinamento)
+            df = df.drop_duplicates(subset=[colonna_ordinamento]).set_index(colonna_ordinamento)
+            tutti_i_valori_x.update(df.index.tolist())
+            
             dataframes.append(df)
             nomi_file.append(os.path.basename(path))
             
         except Exception as e:
             print(f"Errore lettura {path}: {e}")
-            return
+            continue
 
     if not dataframes:
         print("Nessun dato valido caricato.")
         return
 
+    asse_x_globale = sorted(list(tutti_i_valori_x))
+    indici_x = np.arange(len(asse_x_globale))
+    
     # --- 2. IDENTIFICAZIONE E FILTRAGGIO METRICHE ---
     colonne_csv = dataframes[0].columns
     metriche_map = {}
     colonne_processate = set()
     
-    # Normalizziamo la lista di input (se presente) per facilitare i confronti
     target_cols = set(colonne_da_plottare) if colonne_da_plottare else None
 
     for col in colonne_csv:
-        if col == colonna_ordinamento: continue
         if col in colonne_processate: continue
         
-        # Determiniamo il "nome base" della metrica
-        # Se è 'reward_mean', il base è 'reward'. Se è 'time', il base è 'time'.
         is_mean = col.endswith('_mean')
         base_name = col.replace('_mean', '') if is_mean else col
         
-        # --- FILTRO UTENTE ---
-        # Se l'utente ha fornito una lista, controlliamo se questa colonna ci deve essere.
-        # Controlliamo sia il nome base ('reward') che il nome completo ('reward_mean')
         if target_cols is not None:
             if (base_name not in target_cols) and (col not in target_cols):
-                continue # Salta questa colonna, non è richiesta
-        # ---------------------
+                continue
 
-        # Logica accoppiamento Mean/Std
         if is_mean:
             std_col = base_name + '_std'
             if std_col in colonne_csv:
-                # Trovata coppia!
                 metriche_map[base_name] = {'val': col, 'std': std_col}
-                colonne_processate.add(col); colonne_processate.add(std_col)
+                colonne_processate.update([col, std_col])
             else:
-                # Solo mean senza std
                 metriche_map[col] = {'val': col, 'std': None}
                 colonne_processate.add(col)
-        
         elif col.endswith('_std'):
-             # Le std orfane (senza mean prima) le ignoriamo o le gestiamo se serve
              pass 
-        
         else:
-            # Metrica semplice (es. 'time', 'step')
             metriche_map[col] = {'val': col, 'std': None}
             colonne_processate.add(col)
 
     # --- 3. PLOTTING ---
     n_metriche = len(metriche_map)
     if n_metriche == 0:
-        print("Nessuna metrica trovata (controlla i nomi nella lista 'colonne_da_plottare').")
+        print("Nessuna metrica trovata. Controlla i nomi richiesti.")
         return
 
-    fig, axes = plt.subplots(nrows=n_metriche, ncols=1, figsize=(12, 4 * n_metriche), sharex=True)
-    if n_metriche == 1: axes = [axes] # Normalizza se è un solo plot
+    # Ho aumentato un pochino l'altezza della figura per fare spazio ai numeri
+    fig, axes = plt.subplots(nrows=n_metriche, ncols=1, figsize=(12, 5 * n_metriche), sharex=True)
+    if n_metriche == 1: axes = [axes]
     
     n_files = len(dataframes)
     larghezza_totale = 0.8
     larghezza_barra = larghezza_totale / n_files
-    n_punti_x = len(dataframes[0])
-    indici_x = np.arange(n_punti_x)
     
-    # Generiamo colori distinti per i file
     colors = plt.cm.viridis(np.linspace(0.2, 0.8, n_files))
 
     for ax, (nome_metrica, cols) in zip(axes, metriche_map.items()):
         val_col = cols['val']
         std_col = cols['std']
         
+        # ... [il codice precedente rimane uguale fino al ciclo delle metriche] ...
+
+    for ax, (nome_metrica, cols) in zip(axes, metriche_map.items()):
+        val_col = cols['val']
+        std_col = cols['std']
+        
         for i, df in enumerate(dataframes):
+            df_allineato = df.reindex(asse_x_globale)
+            
             offset = (i - n_files/2) * larghezza_barra + (larghezza_barra/2)
             pos = indici_x + offset
             
-            valori = df[val_col]
-            errori = df[std_col] if std_col else None
+            # --- MODIFICA QUI: Forziamo i valori ad essere NUMERI ---
+            if val_col in df_allineato.columns:
+                # errors='coerce' trasforma eventuali stringhe spurie in NaN
+                valori = pd.to_numeric(df_allineato[val_col], errors='coerce')
+            else:
+                valori = pd.Series([np.nan] * len(asse_x_globale))
+                
+            if std_col and std_col in df_allineato.columns:
+                errori = pd.to_numeric(df_allineato[std_col], errors='coerce')
+            else:
+                errori = None
+            # --------------------------------------------------------
             
-            ax.bar(pos, valori, 
+            barre_disegnate = ax.bar(pos, valori, 
                    width=larghezza_barra, 
                    yerr=errori,
                    capsize=4,
-                   label=nomi_file[i] if ax == axes[0] else "", # Legenda solo nel primo
+                   label=nomi_file[i] if ax == axes[0] else "", 
                    color=colors[i],
                    alpha=0.85,
                    error_kw={'ecolor': 'black', 'elinewidth': 1.5})
+            
+            # --- Creiamo le etichette manualmente (come fatto in precedenza) ---
+            etichette_barre = []
+            for v in valori:
+                if pd.isna(v): 
+                    etichette_barre.append("")
+                else:          
+                    etichette_barre.append(f"{v:.2f}")
+
+            ax.bar_label(barre_disegnate, 
+                         labels=etichette_barre,
+                         padding=4,         
+                         fontsize=8,        
+                         color='black')   
         
         ax.set_ylabel(nome_metrica, fontsize=10, fontweight='bold')
         ax.set_title(f"Metrica: {nome_metrica}", fontsize=12)
         ax.grid(axis='y', linestyle='--', alpha=0.4)
-
+        
+        # Aumentiamo un po' il limite superiore dell'asse Y per non tagliare i numeri
+        ax.margins(y=0.15) 
+        
     # --- 4. FORMATTAZIONE ---
-    etichette = dataframes[0][colonna_ordinamento].astype(str).values
+    etichette = [str(x) for x in asse_x_globale]
     axes[-1].set_xlabel(colonna_ordinamento, fontsize=12)
     axes[-1].set_xticks(indici_x)
     axes[-1].set_xticklabels(etichette, rotation=45, ha='right')
     
     fig.legend(loc='upper center', bbox_to_anchor=(0.5, 1.01), ncol=4, frameon=False, fontsize=11)
     plt.tight_layout()
-    plt.show() 
+    plt.show()
+
 
 def plot_metric_series_on_ax(
     ax,             # <--- NUOVO: L'asse su cui disegnare
@@ -353,6 +370,8 @@ def filter_and_enance_data(ep_list, filtering_function=lambda x: True):
             ep_ext['weighted_success'] = ep['success'] * ep['path_tortuosity']
             ep_ext['SPL'] = ep['success'] * (ep['path_length'] / max(ep['distance_traveled'], ep['path_length']))
             ep_ext['SPL2'] = ep['success'] * (ep['path_length'] / ep['distance_traveled']) if ep['distance_traveled'] > 0 else 0
+            
+            ep_ext['success_nc'] = ep['success'] if ep['collisions'] == 0 else 0
             filtered_ep_list.append(ep_ext)
             
     return filtered_ep_list
@@ -402,7 +421,26 @@ def get_outlier_indices(episodes, metric, percentage=0.05):
 
     return low_indices | high_indices
                   
-
+def load_test_from_csv(csv_path, filtering_function = lambda x: True):
+    control_df = pd.read_csv(csv_path)
+    data = {}
+    print(f'loafing data from {csv_path}')
+    for p_name in control_df['policy_name']:
+        control_row = control_df.query(f"policy_name == '{p_name}'")
+        
+        specific_test_name = control_row['test_name'].values[0]
+        json_path = csv_path.rsplit('/', 1)[0] + '/' + specific_test_name + '_info.json'
+        
+        with open(json_path, 'r') as f:
+            specific_test_data = json.load(f)
+        
+        ep_data = filter_and_enance_data(specific_test_data['data'], filtering_function)
+        print(f'\t{len(ep_data)} data for {p_name}')
+        # 2. Elaborazione e calcolo metriche personalizzate
+        data[p_name] = ep_data
+    
+    return data
+    
 def load_test_data(csv_list, filtering_function = lambda x: True):
     data_liste = []
     labels = []
@@ -444,41 +482,39 @@ def load_test_data(csv_list, filtering_function = lambda x: True):
     return data_liste, labels
 
 
-def multy_plot_filtered(csv_list, m1, m2, ncols=2, filtering_function=lambda x: True, outlier_percentage=2):
+def multy_plot_filtered(csv_list, m1, m2, policies, ncols=2, filtering_function=lambda x: True, outlier_percentage=2):
     data_liste = []
     metriche_liste = []
     labels = []
-    initial_data_count = []
     
     # Lista delle policy da analizzare
-    policies = ['basic_1_4205364', 'simple_0_4164735', 'simple_wp_1_4599899', 'complex_1_4165576', 'complex_wp_1_4611744']
     for p in policies:
         raw_data = {}
         th_list = [0.01, 0.25, 0.5, 0.7, 0.75, 0.8, 0.85, 0.9, 0.95, 0.99]
-        for env in ['obstacles_complex']: # 'obstacles_simple', 
-            for i, th_path in enumerate(csv_list):
-                # 1. Caricamento dati
-                control_df = pd.read_csv(th_path)
-                control_row = control_df.query(f"policy_name == '{p}' and env_name == '{env}'")
+        
+        for i, th_path in enumerate(csv_list):
+            # 1. Caricamento dati
+            control_df = pd.read_csv(th_path)
+            control_row = control_df.query(f"policy_name == '{p}'")
+            
+            if control_row.empty:
+                continue
                 
-                if control_row.empty:
-                    continue
-                    
-                specific_test_name = control_row['test_name'].values[0]
-                json_path = th_path.rsplit('/', 1)[0] + '/' + specific_test_name + '_info.json'
-                
-                with open(json_path, 'r') as f:
-                    specific_test_data = json.load(f)
-                
-                
-                # 2. Elaborazione e calcolo metriche personalizzate
-                current_episodes = filter_and_enance_data(specific_test_data['data'], filtering_function)
-                
-                # 4. Aggregazione nel dizionario raw_data
-                if th_list[i] in raw_data:
-                    raw_data[th_list[i]].extend(current_episodes)
-                else:
-                    raw_data[th_list[i]] = current_episodes
+            specific_test_name = control_row['test_name'].values[0]
+            json_path = th_path.rsplit('/', 1)[0] + '/' + specific_test_name + '_info.json'
+            
+            with open(json_path, 'r') as f:
+                specific_test_data = json.load(f)
+            
+            
+            # 2. Elaborazione e calcolo metriche personalizzate
+            current_episodes = filter_and_enance_data(specific_test_data['data'], filtering_function)
+            
+            # 4. Aggregazione nel dizionario raw_data
+            if th_list[i] in raw_data:
+                raw_data[th_list[i]].extend(current_episodes)
+            else:
+                raw_data[th_list[i]] = current_episodes
 
         # --- All'interno della tua funzione, dopo aver accumulato tutti gli episodi ---
 

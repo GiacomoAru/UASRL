@@ -1,0 +1,21 @@
+# --- Configurazione Progetto ---
+project_name: "UNC_UARSL_NEXT"
+p_name: "simple_0_4164735"
+cuda: 0
+
+# --- dati ---
+data_path: "./results/"  # Percorso dati
+data_test_name: "UTS_4612312"
+
+save_path: "./UE/"  # Percorso salvataggio modelli
+actor_path: "./models/"  
+
+# --- Hyperparameter Optimization (HPO - Fase 1) ---
+hpo_trials: 500      # Numero di tentativi Optuna
+hpo_epochs: 20      # Epoche ridotte per la ricerca veloce
+
+# --- Training Ensemble (Fase 2) ---
+final_epochs: 100    # Epoche massime per il training vero
+patience: 10        # Early stopping patience
+k_models_total: 100   # Numero totale di reti da allenare
+n_elites: 10         # Numero di reti migliori da tenere (Elites)

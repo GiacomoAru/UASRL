@@ -1,7 +1,7 @@
 # --- AGENT SETTINGS ---
 step_after_goal : 10        # Steps to continue after reaching the goal before resetting
 max_step : 2000              # Maximum steps per episode
-spawn_facing_goal: false
+spawn_facing_goal: true
 
 # --- MOVEMENT SETTINGS ---
 max_movement_speed : 1.0  # Maximum forward movement speed units/sec
@@ -21,9 +21,9 @@ ema_smoothing : 0.011         # Smoothing factor for EMA position
 # print_every_step : 10000          # Frequency of debug prints
 # obstacle_test : false         # Enable manual obstacle testing
 # ema_debug : false             # Enable EMA visualization
-# cbf_debug : true             # Enable CBF visualization
-# action_debug : true         # Enable drawing of action arrows
-# hud_debug : true             # Enable on-screen HUD debug display
+cbf_debug : true             # Enable CBF visualization
+action_debug : true          # Enable drawing of action arrows
+hud_debug : true             # Enable on-screen HUD debug display
 
 # --- HUD SETTINGS ---
 # hudX : 10                    # HUD X position on screen

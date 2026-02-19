@@ -5,6 +5,7 @@ import random
 import traceback
 from collections import deque
 from pprint import pprint
+from sympy import Q
 import wandb
 import numpy as np
 from decimal import Decimal
@@ -62,6 +63,10 @@ def test(env,
         idc_unc_percentile = int(torch.argmin(torch.abs(unc_enamble_norm_stats['percentile_levels'] - args.ut)))
         print(f"Using {unc_enamble_norm_stats['percentile_levels'][idc_unc_percentile]} Percentile for Uncertainty")
         print(f"\treal value: {unc_enamble_norm_stats['epistemic']['percentiles'][idc_unc_percentile]}")
+        percentile_real_value = unc_enamble_norm_stats['epistemic']['percentiles'][idc_unc_percentile]
+    else:
+        percentile_real_value = 0.0
+        
     start_time = time.time()
     prev_time = -1
     
@@ -159,7 +164,7 @@ def test(env,
                         epistemic_unc = epistemic_unc.item() # Estrae il float dal tensore (1,)
                         
                         cumulative_obs[id][3] = epistemic_unc
-                        cumulative_obs[id][4] = epistemic_unc > unc_enamble_norm_stats['epistemic']['percentiles'][idc_unc_percentile]
+                        cumulative_obs[id][4] = epistemic_unc > percentile_real_value
                         testing_stats['uf_time'].update(time.time() - prev_time)
                         
                     # Update agent memory
@@ -230,7 +235,7 @@ def test(env,
                         cbf_action[1],
                         
                         cumulative_obs[id][4],
-                        unc_enamble_norm_stats['epistemic']['percentiles'][idc_unc_percentile],
+                        percentile_real_value,
                         cumulative_obs[id][3]
                     ) 
                                                         
@@ -318,8 +323,6 @@ agent_config = parse_config_file(args.agent_config_path)
 
 print('Testing with the following parameters:')
 pprint(vars(args))
-print('train_config:')
-pprint(train_config)
 print('agent_config:')
 pprint(agent_config)
 print('other_config:')
@@ -397,13 +400,28 @@ for obs_config_path in args.obstacles_config_path:
         os.makedirs(args.save_path + args.test_name, exist_ok=True)
         
         print('Creating and loading actor network...')
-        actor = OldDenseActor(
-            TOTAL_STATE_SIZE,
-            ACTION_SIZE,
-            ACTION_MIN,
-            ACTION_MAX,
-            args.policy_layers
-        ).to(DEVICE)
+        if 'LAGPPO' in p_name:
+            actor = LagPPOAgent(TOTAL_STATE_SIZE,
+                                ACTION_SIZE,
+                                ACTION_MIN,
+                                ACTION_MAX,
+                                256,
+            ).to(DEVICE)
+        elif 'PPO' in p_name:
+            actor = PPOAgent(TOTAL_STATE_SIZE,
+                                ACTION_SIZE,
+                                ACTION_MIN,
+                                ACTION_MAX,
+                                256
+            ).to(DEVICE)
+        else:
+            actor = OldDenseActor(
+                TOTAL_STATE_SIZE,
+                ACTION_SIZE,
+                ACTION_MIN,
+                ACTION_MAX,
+                [256, 256, 256]
+            ).to(DEVICE)
         load_models(actor, save_path='./models/' + p_name, suffix='_best', DEVICE=DEVICE)
         
         if args.uf:
@@ -467,7 +485,6 @@ for obs_config_path in args.obstacles_config_path:
             d1 = {
                 'metadata': {
                     'test_config': vars(args),
-                    'train_config': train_config,
                     'agent_config': agent_config,
                     'obstacles_config': obstacles_config,
                     'other_config': other_config

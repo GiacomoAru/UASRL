@@ -10,6 +10,7 @@ from functools import reduce
 from typing import Tuple
 from pprint import pprint
 import math
+from collections import deque, defaultdict
 
 # === Third-party libraries ===
 import numpy as np
@@ -19,6 +20,7 @@ import yaml
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from torch.distributions.normal import Normal
 
 # === Unity ML-Agents ===
 from mlagents_envs.side_channel.side_channel import (
@@ -41,8 +43,12 @@ import os
 ####################################################################################################
 ####################################################################################################
 
+def layer_init(layer, std=np.sqrt(2), bias_const=0.0):
+    torch.nn.init.orthogonal_(layer.weight, std)
+    torch.nn.init.constant_(layer.bias, bias_const)
+    return layer
 
-
+# SAC
 
 class OldDenseSoftQNetwork(nn.Module):
     
@@ -147,19 +153,418 @@ class OldDenseActor(nn.Module):
             mean_action = torch.tanh(mean) * self.action_scale + self.action_bias
             
             return action, log_prob, mean_action, mean, log_std
-        
         else:
             mean_action = torch.tanh(mean) * self.action_scale + self.action_bias
             return mean_action, -torch.inf, mean_action, mean, log_std
   
-  
-  
-# Funzione per inizializzare i pesi in modo stabile
-def weights_init_(m):
-    if isinstance(m, nn.Linear):
-        torch.nn.init.orthogonal_(m.weight, gain=torch.nn.init.calculate_gain('relu'))
-        torch.nn.init.constant_(m.bias, 0)
 
+# PPO
+
+class PPOAgent(nn.Module):
+    def __init__(self, state_dim, action_dim, action_min, action_max, hidden_dim=256):
+        super().__init__()
+        # Convertiamo min/max in tensori per calcoli vettoriali
+        self.register_buffer('action_min', torch.tensor(action_min, dtype=torch.float32))
+        self.register_buffer('action_max', torch.tensor(action_max, dtype=torch.float32))
+        
+        # Critic
+        self.critic = nn.Sequential(
+            layer_init(nn.Linear(state_dim, hidden_dim)),
+            nn.Tanh(),
+            layer_init(nn.Linear(hidden_dim, hidden_dim)),
+            nn.Tanh(),
+            layer_init(nn.Linear(hidden_dim, 1), std=1.0),
+        )
+        
+        # Actor
+        self.actor_mean = nn.Sequential(
+            layer_init(nn.Linear(state_dim, hidden_dim)),
+            nn.Tanh(),
+            layer_init(nn.Linear(hidden_dim, hidden_dim)),
+            nn.Tanh(),
+            layer_init(nn.Linear(hidden_dim, action_dim), std=0.01),
+        )
+        # LogStd avviato a 0.0 (std=1.0) per esplorare meglio all'inizio
+        self.actor_logstd = nn.Parameter(torch.zeros(1, action_dim)) 
+
+    def get_value(self, x):
+        return self.critic(x)
+
+    def get_action_and_value(self, x, action=None):
+        # 1. Ottieni media e deviazione standard dalla rete
+        action_mean = self.actor_mean(x)
+        action_logstd = self.actor_logstd.expand_as(action_mean)
+        action_std = torch.exp(action_logstd)
+        
+        # 2. Crea distribuzione normale
+        probs = Normal(action_mean, action_std)
+        
+        # 3. Campionamento
+        if action is None:
+            # Campioniamo dalla normale (raw_action può essere qualsiasi valore)
+            raw_action = probs.rsample()
+        else:
+            raw_action = action
+
+        # 4. Tanh Squashing (Schiaccia tra -1 e 1)
+        action_tanh = torch.tanh(raw_action)
+        
+        # 5. Calcolo LogProb corretto con Jacobiano (formula standard per Tanh)
+        # log_prob(y) = log_prob(x) - log(1 - tanh(x)^2)
+        log_prob = probs.log_prob(raw_action).sum(1)
+        log_prob -= torch.log(1 - action_tanh.pow(2) + 1e-6).sum(1)
+        
+        # 6. Scaling Lineare verso il range reale [min, max]
+        # action in [-1, 1] -> action in [min, max]
+        scale = (self.action_max - self.action_min) / 2.0
+        bias = (self.action_max + self.action_min) / 2.0
+        scaled_action = action_tanh * scale + bias
+        
+        return raw_action, scaled_action, log_prob, probs.entropy().sum(1), self.critic(x)
+
+    def get_action(self, x, std_scale=1.0):
+        # 1. Ottieni i parametri "raw" dalla rete (Mean) e dal parametro appreso (LogStd)
+        mean = self.actor_mean(x)
+        log_std = self.actor_logstd.expand_as(mean) # Espande il parametro per matchare il batch size
+        
+        # Calcoliamo Scale e Bias al volo (basati su min/max salvati nel buffer)
+        action_scale = (self.action_max - self.action_min) / 2.0
+        action_bias = (self.action_max + self.action_min) / 2.0
+
+        if std_scale > 0:
+            std = log_std.exp() * std_scale
+            probs = Normal(mean, std)
+            x_t = probs.rsample() # raw_action
+            y_t = torch.tanh(x_t)
+            action = y_t * action_scale + action_bias
+            log_prob = probs.log_prob(x_t)
+            correction = torch.log(action_scale * (1 - y_t.pow(2)) + 1e-6)
+            log_prob -= correction
+            log_prob = log_prob.sum(1, keepdim=True)
+            mean_action = torch.tanh(mean) * action_scale + action_bias
+            
+            return action, log_prob, mean_action, mean, log_std
+            
+        else:
+            mean_action = torch.tanh(mean) * action_scale + action_bias
+            return mean_action, -torch.inf, mean_action, mean, log_std
+        
+class PPORolloutBuffer:
+    def __init__(self, device, gamma=0.99, gae_lambda=0.95):
+        self.device = device
+        self.gamma = gamma
+        self.gae_lambda = gae_lambda
+        self.reset()
+
+    def reset(self):
+        # Usiamo liste semplici per accumulare dati CPU
+        self.active_memories = defaultdict(lambda: {'states': [], 'raw_actions': [], 'logprobs': [], 'rewards': [], 'values': [], 'dones': []})
+        self.finished_memories = [] 
+        self.total_steps = 0
+
+    def add(self, id, state, raw_action, logprob, reward, done, value):
+        # Nota: raw_action è l'azione PRIMA del tanh/scaling
+        mem = self.active_memories[id]
+        
+        # Salviamo tutto in CPU/Numpy per staccare dal grafo computazionale
+        mem['states'].append(state.cpu().numpy())       
+        mem['raw_actions'].append(raw_action.cpu().numpy()) # Salviamo azione raw
+        mem['logprobs'].append(logprob.item())
+        mem['rewards'].append(reward)
+        mem['dones'].append(done)
+        mem['values'].append(value.item()) # Salviamo solo il float
+        
+        self.total_steps += 1
+
+        if done:
+            self.finished_memories.append(mem)
+            del self.active_memories[id]
+
+    def _calculate_gae(self, mem, last_value):
+        # Conversione in tensor una volta sola per traiettoria
+        rewards = torch.tensor(mem['rewards'], dtype=torch.float32).to(self.device)
+        dones = torch.tensor(mem['dones'], dtype=torch.float32).to(self.device)
+        values = torch.tensor(mem['values'], dtype=torch.float32).to(self.device)
+        
+        advantages = torch.zeros_like(rewards).to(self.device)
+        lastgaelam = 0
+        steps = len(rewards)
+        
+        # Loop GAE corretto
+        for t in reversed(range(steps)):
+            if t == steps - 1:
+                nextnonterminal = 1.0 - dones[t] # Se done=True, next è 0
+                nextvalues = last_value
+            else:
+                nextnonterminal = 1.0 - dones[t + 1]
+                nextvalues = values[t+1]
+            
+            delta = rewards[t] + self.gamma * nextvalues * nextnonterminal - values[t]
+            advantages[t] = lastgaelam = delta + self.gamma * self.gae_lambda * nextnonterminal * lastgaelam
+        
+        returns = advantages + values
+        
+        # Ricostruiamo tensori stato/azione
+        states = torch.tensor(np.array(mem['states']), dtype=torch.float32).to(self.device)
+        raw_actions = torch.tensor(np.array(mem['raw_actions']), dtype=torch.float32).to(self.device)
+        logprobs = torch.tensor(np.array(mem['logprobs']), dtype=torch.float32).to(self.device)
+        
+        return states, raw_actions, logprobs, advantages, returns, values
+
+    def get_full_batch(self, last_value_estimates=None):
+        # Raccoglie tutto in un unico mega-tensore
+        all_data = defaultdict(list)
+
+        # 1. Traiettorie finite
+        for mem in self.finished_memories:
+            s, a, l, adv, ret, v = self._calculate_gae(mem, last_value=0.0)
+            all_data['s'].append(s)
+            all_data['a'].append(a)
+            all_data['l'].append(l)
+            all_data['adv'].append(adv)
+            all_data['ret'].append(ret)
+            all_data['v'].append(v)
+
+        # 2. Traiettorie attive
+        for id, mem in self.active_memories.items():
+            if len(mem['states']) == 0: continue
+            last_val = last_value_estimates[id] if (last_value_estimates and id in last_value_estimates) else 0.0
+            s, a, l, adv, ret, v = self._calculate_gae(mem, last_value=last_val)
+            all_data['s'].append(s)
+            all_data['a'].append(a)
+            all_data['l'].append(l)
+            all_data['adv'].append(adv)
+            all_data['ret'].append(ret)
+            all_data['v'].append(v)
+
+        # Concatena
+        return (torch.cat(all_data['s']), 
+                torch.cat(all_data['a']), 
+                torch.cat(all_data['l']), 
+                torch.cat(all_data['adv']), 
+                torch.cat(all_data['ret']), 
+                torch.cat(all_data['v'])) 
+        
+              
+# Lag PPO
+
+class LagPPOAgent(nn.Module):
+    def __init__(self, state_dim, action_dim, action_min, action_max, hidden_dim=256):
+        super().__init__()
+        # Convertiamo min/max in tensori per calcoli vettoriali
+        self.register_buffer('action_min', torch.tensor(action_min, dtype=torch.float32))
+        self.register_buffer('action_max', torch.tensor(action_max, dtype=torch.float32))
+        
+        # Critic
+        self.critic = nn.Sequential(
+            layer_init(nn.Linear(state_dim, hidden_dim)),
+            nn.Tanh(),
+            layer_init(nn.Linear(hidden_dim, hidden_dim)),
+            nn.Tanh(),
+            layer_init(nn.Linear(hidden_dim, 1), std=1.0),
+        )
+        
+        self.cost_critic = nn.Sequential(
+            layer_init(nn.Linear(state_dim, hidden_dim)),
+            nn.Tanh(),
+            layer_init(nn.Linear(hidden_dim, hidden_dim)),
+            nn.Tanh(),
+            layer_init(nn.Linear(hidden_dim, 1), std=1.0),
+        )
+        
+        # Actor
+        self.actor_mean = nn.Sequential(
+            layer_init(nn.Linear(state_dim, hidden_dim)),
+            nn.Tanh(),
+            layer_init(nn.Linear(hidden_dim, hidden_dim)),
+            nn.Tanh(),
+            layer_init(nn.Linear(hidden_dim, action_dim), std=0.01),
+        )
+        # LogStd avviato a 0.0 (std=1.0) per esplorare meglio all'inizio
+        self.actor_logstd = nn.Parameter(torch.zeros(1, action_dim)) 
+
+    def get_value(self, x):
+        return self.critic(x)
+    
+    def get_cost_value(self, x):
+        return self.cost_critic(x)
+
+    def get_action_and_value(self, x, action=None):
+        # 1. Ottieni media e deviazione standard dalla rete
+        action_mean = self.actor_mean(x)
+        action_logstd = self.actor_logstd.expand_as(action_mean)
+        action_std = torch.exp(action_logstd)
+        
+        # 2. Crea distribuzione normale
+        probs = Normal(action_mean, action_std)
+        
+        # 3. Campionamento
+        if action is None:
+            # Campioniamo dalla normale (raw_action può essere qualsiasi valore)
+            raw_action = probs.rsample()
+        else:
+            raw_action = action
+
+        # 4. Tanh Squashing (Schiaccia tra -1 e 1)
+        action_tanh = torch.tanh(raw_action)
+        
+        # 5. Calcolo LogProb corretto con Jacobiano (formula standard per Tanh)
+        # log_prob(y) = log_prob(x) - log(1 - tanh(x)^2)
+        log_prob = probs.log_prob(raw_action).sum(1)
+        log_prob -= torch.log(1 - action_tanh.pow(2) + 1e-6).sum(1)
+        
+        # 6. Scaling Lineare verso il range reale [min, max]
+        # action in [-1, 1] -> action in [min, max]
+        scale = (self.action_max - self.action_min) / 2.0
+        bias = (self.action_max + self.action_min) / 2.0
+        scaled_action = action_tanh * scale + bias
+        
+        return raw_action, scaled_action, log_prob, probs.entropy().sum(1), self.critic(x)
+
+    def get_action(self, x, std_scale=1.0):
+        # 1. Ottieni i parametri "raw" dalla rete (Mean) e dal parametro appreso (LogStd)
+        mean = self.actor_mean(x)
+        log_std = self.actor_logstd.expand_as(mean) # Espande il parametro per matchare il batch size
+        
+        # Calcoliamo Scale e Bias al volo (basati su min/max salvati nel buffer)
+        action_scale = (self.action_max - self.action_min) / 2.0
+        action_bias = (self.action_max + self.action_min) / 2.0
+
+        if std_scale > 0:
+            std = log_std.exp() * std_scale
+            probs = Normal(mean, std)
+            x_t = probs.rsample() # raw_action
+            y_t = torch.tanh(x_t)
+            action = y_t * action_scale + action_bias
+            log_prob = probs.log_prob(x_t)
+            correction = torch.log(action_scale * (1 - y_t.pow(2)) + 1e-6)
+            log_prob -= correction
+            log_prob = log_prob.sum(1, keepdim=True)
+            mean_action = torch.tanh(mean) * action_scale + action_bias
+            
+            return action, log_prob, mean_action, mean, log_std
+            
+        else:
+            mean_action = torch.tanh(mean) * action_scale + action_bias
+            return mean_action, -torch.inf, mean_action, mean, log_std
+        
+class LagPPORolloutBuffer:
+    def __init__(self, device, gamma=0.99, gae_lambda=0.95):
+        self.device = device
+        self.gamma = gamma
+        self.gae_lambda = gae_lambda
+        self.reset()
+
+    def reset(self):
+        # Usiamo liste semplici per accumulare dati CPU
+        self.active_memories = defaultdict(lambda: {'states': [], 'raw_actions': [], 'logprobs': [], 'rewards': [], 'values': [], 'costs': [], 'cost_values': [], 'dones': []})
+        self.finished_memories = [] 
+        self.total_steps = 0
+
+    def add(self, id, state, raw_action, logprob, reward, cost, done, value, cost_value):
+        mem = self.active_memories[id]
+        
+        mem['states'].append(state.cpu().numpy())       
+        mem['raw_actions'].append(raw_action.cpu().numpy())
+        mem['logprobs'].append(logprob.item())
+        mem['rewards'].append(reward)
+        mem['costs'].append(cost)
+        mem['dones'].append(done)
+        mem['values'].append(value.item())
+        # Nota: usiamo il plurale cost_values per coerenza interna
+        mem['cost_values'].append(cost_value) 
+        
+        self.total_steps += 1
+
+        if done:
+            self.finished_memories.append(mem)
+            del self.active_memories[id]
+
+    def _calculate_gae(self, mem, last_value, last_cost):
+        rewards = torch.tensor(mem['rewards'], dtype=torch.float32, device=self.device)
+        costs   = torch.tensor(mem['costs'],   dtype=torch.float32, device=self.device)
+        dones   = torch.tensor(mem['dones'],   dtype=torch.float32, device=self.device)
+        values  = torch.tensor(mem['values'],  dtype=torch.float32, device=self.device)
+        cost_values = torch.tensor(mem['cost_values'], dtype=torch.float32, device=self.device)
+
+        adv_r = torch.zeros_like(rewards)
+        adv_c = torch.zeros_like(costs)
+
+        lastgaelam_r = 0.0
+        lastgaelam_c = 0.0
+        steps = len(rewards)
+
+        for t in reversed(range(steps)):
+            if t == steps - 1:
+                nextnonterminal = 1.0 - dones[t]
+                next_value = last_value
+                next_cost_value = last_cost
+            else:
+                nextnonterminal = 1.0 - dones[t+1]
+                next_value = values[t+1]
+                next_cost_value = cost_values[t+1]
+
+            delta_r = rewards[t] + self.gamma * next_value * nextnonterminal - values[t]
+            delta_c = costs[t]   + self.gamma * next_cost_value * nextnonterminal - cost_values[t]
+
+            adv_r[t] = lastgaelam_r = delta_r + self.gamma * self.gae_lambda * nextnonterminal * lastgaelam_r
+            adv_c[t] = lastgaelam_c = delta_c + self.gamma * self.gae_lambda * nextnonterminal * lastgaelam_c
+
+        ret_r = adv_r + values
+        ret_c = adv_c + cost_values
+
+        states = torch.tensor(np.array(mem['states']), dtype=torch.float32, device=self.device)
+        raw_actions = torch.tensor(np.array(mem['raw_actions']), dtype=torch.float32, device=self.device)
+        logprobs = torch.tensor(np.array(mem['logprobs']), dtype=torch.float32, device=self.device)
+
+        return states, raw_actions, logprobs, adv_r, adv_c, ret_r, ret_c, values, cost_values
+
+    def get_full_batch(self, last_value_estimates=None, last_cost_estimates=None):
+        all_data = defaultdict(list)
+
+        # 1. Traiettorie finite
+        for mem in self.finished_memories:
+            s, a, l, adv_r, adv_c, ret_r, ret_c, v, c = self._calculate_gae(mem, last_value=0.0, last_cost=0.0)
+            all_data['s'].append(s)
+            all_data['a'].append(a)
+            all_data['l'].append(l)
+            all_data['adv_r'].append(adv_r)
+            all_data['adv_c'].append(adv_c)
+            all_data['ret_r'].append(ret_r)
+            all_data['ret_c'].append(ret_c)
+            all_data['v'].append(v)
+            all_data['c'].append(c)
+
+        # 2. Traiettorie attive
+        for id, mem in self.active_memories.items():
+            if len(mem['states']) == 0: continue
+            last_val = last_value_estimates[id] if (last_value_estimates and id in last_value_estimates) else 0.0
+            last_cost  = last_cost_estimates[id] if (last_cost_estimates and id in last_cost_estimates) else 0.0
+            
+            s, a, l, adv_r, adv_c, ret_r, ret_c, v, c = self._calculate_gae(mem, last_val, last_cost)
+            all_data['s'].append(s)
+            all_data['a'].append(a)
+            all_data['l'].append(l)
+            all_data['adv_r'].append(adv_r)
+            all_data['adv_c'].append(adv_c)
+            all_data['ret_r'].append(ret_r)
+            all_data['ret_c'].append(ret_c)
+            all_data['v'].append(v)
+            all_data['c'].append(c)
+
+        # Concatena
+        return (torch.cat(all_data['s']), 
+                torch.cat(all_data['a']), 
+                torch.cat(all_data['l']), 
+                torch.cat(all_data['adv_r']),
+                torch.cat(all_data['adv_c']), 
+                torch.cat(all_data['ret_r']), 
+                torch.cat(all_data['ret_c']),
+                torch.cat(all_data['v']),
+                torch.cat(all_data['c']))
+
+
+# Others
 
 class CustomChannel(SideChannel):
     # Costanti del protocollo (DEVONO corrispondere a quelle C#)
@@ -399,6 +804,8 @@ class DenseStackedObservations:
         # return the obs stack
         return self.stack[ids].copy()
            
+           
+           
 ####################################################################################################
 ####################################################################################################
 
@@ -461,6 +868,15 @@ def parse_args():
     return args
 
 
+def write_dict(writer, d, name):
+    if type(d) is not dict:
+        d = vars(d)
+        
+    writer.add_text(
+        name,
+        "|param|value|\n|-|-|\n%s" % ("\n".join([f"|{key}|{d[key]}|" for key in d])),
+    )
+
 ####################################################################################################
 ####################################################################################################
 
@@ -477,7 +893,11 @@ def save_models(actor, qf_ensemble, qf_ensemble_target, save_path, suffix=''):
         torch.save(qf.state_dict(), os.path.join(save_path, f'qf{i+1}{suffix}.pth'))
     for i, qft in enumerate(qf_ensemble_target):
         torch.save(qft.state_dict(), os.path.join(save_path, f'qf{i+1}_target{suffix}.pth'))
-        
+
+def save_models_simple(agent, path, suffix=''):
+    torch.save(agent.state_dict(), f"{path}/agent{suffix}.pth")
+    
+           
 def modify_config_for_curriculum(step, total_step, obs_config):
     if 'og_initial_fill_percentage' not in obs_config:
         obs_config['og_initial_fill_percentage'] = obs_config['initial_fill_percentage']
@@ -622,14 +1042,7 @@ def apply_unity_settings(channel, config_dict, label_prefix=''):
         elif isinstance(value, (int, float)):
             channel.set_float_parameter(label_prefix + key, float(value))
 
-def write_dict(writer, d, name):
-    if type(d) is not dict:
-        d = vars(d)
-        
-    writer.add_text(
-        name,
-        "|param|value|\n|-|-|\n%s" % ("\n".join([f"|{key}|{d[key]}|" for key in d])),
-    )
+
 
 def update_stats_from_message(all, success, failure, msg, smoothing):
     def update_stats_helper(stats, msg, smoothing):
@@ -703,7 +1116,8 @@ def print_update_rm(env_step, total_timesteps, start_time, stats):
         print_text += f"|{s}: {stats[s].mean:.5f}"
     print_text += f'| SPS: {int(env_step / (time.time() - start_time))}'
     print(print_text)
-       
+
+
 def log_stats_to_tensorboard(writer, all, success, failure):   
     for s in all:
         writer.add_scalar("all_ep_stats/" + s, all[s], all['ep_count'])
@@ -719,6 +1133,8 @@ def log_stats_to_wandb(wandb_run, dicts, labels, x_value):
             wandb_run.log(to_save, step=x_value)
         else:
             wandb_run.log(d, step=x_value)
+
+
 
 def extract_and_reset_stats(stats, aggregations=['mean']):
     stats_divided = {}
@@ -951,6 +1367,15 @@ def observe_batch_stacked(env, BEHAVIOUR_NAME, input_stack, observation_size):
         observe_batch_stacked.memory[1] = stored_data[keep_mask]
 
     return decision_obs, terminal_obs # (id, obs, reward, termination)
+
+
+# Lag
+def compute_lag_cost(obs, RAYCAST_SIZE, STACKS, d_safe, ray_len):
+    for id in obs:
+        closest_obj_dist = min(obs[id][0][RAYCAST_SIZE * (STACKS - 1): RAYCAST_SIZE*STACKS])
+        closest_obj_real_dist = closest_obj_dist*ray_len # 3 meters raycast to 0-1
+        
+        obs[id].append(max(0, (d_safe - closest_obj_real_dist)/d_safe ))
 
 ####################################################################################################
 ####################################################################################################

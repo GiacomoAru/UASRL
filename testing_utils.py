@@ -44,13 +44,25 @@ def load_models(actor=None,
         raise ValueError("save_path must be provided")
     
     # ===== Actor =====
+
+    # Definiamo i possibili nomi dei file in ordine di preferenza
+    files_to_try = [f'actor{suffix}.pth', f'agent{suffix}.pth']
+    loaded = False
+
     if actor is not None:
-        actor.load_state_dict(
-            torch.load(
-                os.path.join(save_path, f'actor{suffix}.pth'),
-                map_location=DEVICE
-            )
-        )
+        for file_name in files_to_try:
+            full_path = os.path.join(save_path, file_name)
+            
+            if os.path.exists(full_path):
+                print(f"Loading weights from {full_path}...")
+                actor.load_state_dict(
+                    torch.load(full_path, map_location=DEVICE)
+                )
+                loaded = True
+                break  # Interrompe il ciclo una volta trovato il file
+                
+        if not loaded:
+            print(f"⚠️ [WARNING] No weights found in {save_path} for actor or agent.")
 
     # ===== Q ensemble =====
     if qf_ensemble is not None:
