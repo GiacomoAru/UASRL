@@ -5,9 +5,9 @@ from training_utils import *
 from uncertainty_utils import *
 
 
-base_path = 'UNC_NORM_DATA_TEST' #ATTENZIONE ORA é UNA STRINGA E NON UNA LISA ATTENZIONE!!!!!
-p_names = ["NEW_TR_BASE_5746072", "NEW_TR_SIMPLE_5770545", "NEW_TR_SIMPLEWP_5819553", "NEW_TR_SIMPLE_EASY_5804798", "NEW_TR_SIMPLEWP_EASY_5841772"]
-numbers = ['5944593','5944604','5947648', '5944599', '5946653']
+base_path = 'DATA_NORM_PPO' #ATTENZIONE ORA é UNA STRINGA E NON UNA LISA ATTENZIONE!!!!!
+p_names = ["PPOWP_7167668", "PPO_RETRAIN_7154081"]
+numbers = ['7254512','7256469']
 raws = []
 infos = []
 actors = []
@@ -29,18 +29,34 @@ for i, p in enumerate(p_names):
     ACTION_MIN = infos[-1]['metadata']['other_config']['min_action']
     ACTION_MAX = infos[-1]['metadata']['other_config']['max_action']
 
-    INPUT_STACK = infos[-1]['metadata']['train_config']['input_stack']
+    INPUT_STACK = 4
     TOTAL_STATE_SIZE = (STATE_SIZE + RAYCAST_SIZE)*INPUT_STACK
 
     print(f"Loading actor network")
-    actors.append(OldDenseActor(
-        TOTAL_STATE_SIZE,
-        ACTION_SIZE,
-        ACTION_MIN,
-        ACTION_MAX,
-        [256, 256, 256]
-    ).to('cuda:0'))
-    load_models(actors[-1], save_path='./models/' + p_names[i], suffix='_best', DEVICE='cuda:0')
+    if 'LAGPPO' in p:
+        actor = LagPPOAgent(TOTAL_STATE_SIZE,
+                            ACTION_SIZE,
+                            ACTION_MIN,
+                            ACTION_MAX,
+                            256,
+        ).to('cuda:0')
+    elif 'PPO' in p:
+        actor = PPOAgent(TOTAL_STATE_SIZE,
+                            ACTION_SIZE,
+                            ACTION_MIN,
+                            ACTION_MAX,
+                            256
+        ).to('cuda:0')
+    else:
+        actor = OldDenseActor(
+            TOTAL_STATE_SIZE,
+            ACTION_SIZE,
+            ACTION_MIN,
+            ACTION_MAX,
+            [256, 256, 256]
+        ).to('cuda:0')
+    load_models(actor, save_path='./models/' + p, suffix='_best', DEVICE='cuda:0')
+    actors.append(actor)
     
     ens.append(load_trained_ensemble('./UE/unc_' + p_names[i], (21+7)*4+2, (21+7), 'cuda:0')[0])
     

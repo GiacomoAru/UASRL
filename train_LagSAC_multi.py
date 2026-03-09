@@ -528,27 +528,27 @@ DEVICE = torch.device(device_str)
 print(f"Using device: {DEVICE}")
 
 run_id = 0
-while run_id < 1000:
+while run_id < 10:
 
-    combo = sample_hparams()
+    # combo = sample_hparams()
 
-    print(f"\n=== RUN {run_id} ===")
-    print(combo)
+    # print(f"\n=== RUN {run_id} ===")
+    # print(combo)
 
     # Parametri standard SAC
-    args.policy_lr = combo['lr']
-    args.q_lr = combo['lr']
-    args.alpha_lr = combo['lr']
+    args.policy_lr = 0.0019673732792753903
+    args.q_lr = 0.0019673732792753903
+    args.alpha_lr = 0.0019673732792753903
     
-    args.tau = combo['tau']
-    args.policy_frequency = combo['policy_frequency']
-    args.target_entropy = combo['target_entropy']
-    args.batch_size = combo['batch_size']
-    args.gamma = combo['gamma']
+    args.tau = 0.020138971906948057
+    args.policy_frequency = 2
+    args.target_entropy = -3.4576707616906814
+    args.batch_size = 128
+    args.gamma = 0.9867547992849228
     
     # Parametri LAGSAC
-    args.safety_threshold = combo['safety_threshold']
-    args.lr_lagrange = combo['lr']/3
+    args.safety_threshold = 3.57471727232292
+    args.lr_lagrange = 0.0019673732792753903/3
 
     # Avvio del processo di training
     train(args, agent_config, obstacles_config, other_config)

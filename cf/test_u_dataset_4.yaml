@@ -1,9 +1,9 @@
 # =========================
 # Experiment Identity
 # =========================
-test_name: "debug_test"
+test_name: "name"
 machine_name: "personal"
-seed: 90908878
+seed: 793792384
 base_time: 1765457030
 
 train_config_path: "./cf/train_SAC.yaml"
@@ -11,30 +11,25 @@ train_config_path: "./cf/train_SAC.yaml"
 # =========================
 # Policies
 # =========================
-policy_names:
-#  - "NEW_TR_PPOBASE_5944633"
-#  - "NEW_TR_PPOSIMPLE_5944628"
-#  - "NEW_TR_PPOSIMPLE_5944623"
+policy_names: NEW_TR_PPOSIMPLE_5944628
+upolicy_name: NEW_TR_PPOSIMPLE_5944628
 
-  - "NEW_TR_LAGPPOSIMPLE_5964794"
-  - "NEW_TR_LAGPPOSIMPLE_5964789"
-  
 policy_layers: [256, 256, 256]
 actor_std: 0.95
 
 # =========================
 # Environment / Obstacles
 # =========================
-obstacles_config_path: "./cf/obstacles_simple_safw.yaml"
+obstacles_config_path: "./cf/obstacles_simple.yaml"
 
 build_path: "./unity_build/1xlimotest_1502_wind/UASRL.exe"
-agent_config_path: "./cf/agent_test_sfg.yaml"
+agent_config_path: "./cf/agent_test.yaml"
 
 headless: false
 worker_id: 0
 
 decision_frame_period: 5
-send_debug_action: true
+send_debug_action: false
 
 # =========================
 # Testing Configuration
@@ -44,24 +39,24 @@ episode_queue_length: 18
 accumulate_data: true
 
 cbf: false
-d_safe: 0.2
+d_safe: 0.15
 d_safe_mul: 3
-alpha: 1.5
-cbf_min_forward_velocity: 0.0
+alpha: 2.0
+cbf_min_forward_velocity: 0.05
 
 uf: false
 ut: 0.75
-ue_path: './UE/'
+ue_path: './unc_models_sample/'
 ue_action_type: 'sample' # or sample
 
 # =========================
 # Torch
 # =========================
 cuda: 0
-torch_deterministic: true
+torch_deterministic: false
 
 # =========================
 # Logging & Saving
 # =========================
-metrics_log_interval: 25
+metrics_log_interval: 50
 save_path: "./results/"

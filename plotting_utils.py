@@ -364,14 +364,26 @@ def filter_and_enance_data(ep_list, filtering_function=lambda x: True):
     filtered_ep_list = []
     for ep in ep_list:
         if filtering_function(ep):
+            if ep['length'] == 1999:
+                ep['success'] = 0
+            if ep['length'] == 1999:
+                ep['success'] = 0
+                  
             # Calcolo metriche aggiuntive
             ep_ext = ep.copy()
             ep_ext['velocity'] = ep['distance_traveled'] / ep['length'] if ep['length'] > 0 else 0
+            
             ep_ext['weighted_success'] = ep['success'] * ep['path_tortuosity']
             ep_ext['SPL'] = ep['success'] * (ep['path_length'] / max(ep['distance_traveled'], ep['path_length']))
             ep_ext['SPL2'] = ep['success'] * (ep['path_length'] / ep['distance_traveled']) if ep['distance_traveled'] > 0 else 0
             
+            
             ep_ext['success_nc'] = ep['success'] if ep['collisions'] == 0 else 0
+            ep_ext['stuck_rate'] = 1 if ep['success'] == 0 and ep['collisions'] == 0 else 0
+            ep_ext['collision_rate'] = 1 if ep['collisions'] > 0 else 0
+            
+            ep_ext['vel_success'] = ep_ext['velocity'] if ep['success'] == 1 else None
+            ep_ext['length_success'] = ep['length'] if ep['success'] == 1 else None
             filtered_ep_list.append(ep_ext)
             
     return filtered_ep_list
@@ -420,14 +432,36 @@ def get_outlier_indices(episodes, metric, percentage=0.05):
     high_indices = {idx for _, idx in indexed_values[-per_side:]}
 
     return low_indices | high_indices
-                  
-def load_test_from_csv(csv_path, filtering_function = lambda x: True):
+
+def load_test_from_csv(csv_path, filtering_function = lambda x: True, policy_order=None, env_name=None):
+    # 1. Caricamento del DataFrame
     control_df = pd.read_csv(csv_path)
     data = {}
-    print(f'loafing data from {csv_path}')
-    for p_name in control_df['policy_name']:
-        control_row = control_df.query(f"policy_name == '{p_name}'")
+    print(f'Loading data from {csv_path}')
+    
+    # --- NUOVO: Ordinamento personalizzato ---
+    if policy_order is not None:
+        # Diciamo a Pandas qual è l'ordine ufficiale per 'policy_name'
+        control_df['policy_name'] = pd.Categorical(
+            control_df['policy_name'], 
+            categories=policy_order, 
+            ordered=True
+        )
+        # Ordiniamo il dataframe in base a questa nuova categoria
+        control_df = control_df.sort_values('policy_name')
         
+        # Sicurezza: rimuoviamo le policy del CSV che non erano presenti nella tua lista
+        # (altrimenti avrebbero valore NaN e farebbero crashare il ciclo)
+        control_df = control_df.dropna(subset=['policy_name'])
+    # ----------------------------------------
+
+    # Ora il ciclo seguirà esattamente l'ordine che hai imposto!
+    for p_name in control_df['policy_name']:
+        if env_name is not None:
+            control_row = control_df.query(f"policy_name == '{p_name}' & env_name == '{env_name}'")
+        else:
+            control_row = control_df.query(f"policy_name == '{p_name}'")
+            
         specific_test_name = control_row['test_name'].values[0]
         json_path = csv_path.rsplit('/', 1)[0] + '/' + specific_test_name + '_info.json'
         
@@ -436,10 +470,64 @@ def load_test_from_csv(csv_path, filtering_function = lambda x: True):
         
         ep_data = filter_and_enance_data(specific_test_data['data'], filtering_function)
         print(f'\t{len(ep_data)} data for {p_name}')
+        
         # 2. Elaborazione e calcolo metriche personalizzate
         data[p_name] = ep_data
     
     return data
+ 
+def calcola_statistiche_policy(lista_dizionari, cols_to_keep=None):
+    """
+    Calcola mean e std per ogni metrica per policy.
+
+    Colonne finali:
+      policy_name,
+      tutte le *_mean (nell'ordine di cols_to_keep),
+      tutte le *_std  (nell'ordine di cols_to_keep)
+
+    cols_to_keep: lista di metriche BASE (es. ["success_nc","reward","cost"]).
+                 Se None, usa l'ordine delle metriche del primo df_episodi.
+    """
+    import numpy as np
+    lista_dataframe = []
+
+    for dizionario in lista_dizionari:
+        righe_dati = []
+        ordine_metriche_default = None
+
+        for nome_policy, episodi in dizionario.items():
+            df_episodi = pd.DataFrame(episodi)
+
+            if ordine_metriche_default is None:
+                ordine_metriche_default = list(df_episodi.columns)
+
+            riga = {"policy_name": nome_policy}
+
+            # calcolo robusto: converto ogni colonna a numerico (bool e "0"/"1" inclusi)
+            for metrica in df_episodi.columns:
+                # 1. Convertiamo la colonna in numeri, i valori non validi diventano NaN
+                s = pd.to_numeric(df_episodi[metrica], errors="coerce")
+
+                riga[f"{metrica}_mean"] = float(s.mean()) if s.notna().any() else 0.0
+                riga[f"{metrica}_std"] = float(s.std(ddof=1)) if s.notna().sum() > 1 else 0.0
+
+            righe_dati.append(riga)
+
+        df_risultato = pd.DataFrame(righe_dati)
+
+        metriche = list(cols_to_keep) if cols_to_keep is not None else (ordine_metriche_default or [])
+
+        mean_cols = [f"{m}_mean" for m in metriche if f"{m}_mean" in df_risultato.columns]
+        std_cols  = [f"{m}_std"  for m in metriche if f"{m}_std"  in df_risultato.columns]
+
+        df_risultato = df_risultato[["policy_name"] + mean_cols + std_cols]
+        lista_dataframe.append(df_risultato)
+
+    return lista_dataframe
+
+
+
+ 
     
 def load_test_data(csv_list, filtering_function = lambda x: True):
     data_liste = []
@@ -482,61 +570,11 @@ def load_test_data(csv_list, filtering_function = lambda x: True):
     return data_liste, labels
 
 
-def multy_plot_filtered(csv_list, m1, m2, policies, ncols=2, filtering_function=lambda x: True, outlier_percentage=2):
+def multy_plot_filtered(csv_list, m1, m2, policies, ncols=2):
     data_liste = []
     metriche_liste = []
     labels = []
     
-    # Lista delle policy da analizzare
-    for p in policies:
-        raw_data = {}
-        th_list = [0.01, 0.25, 0.5, 0.7, 0.75, 0.8, 0.85, 0.9, 0.95, 0.99]
-        
-        for i, th_path in enumerate(csv_list):
-            # 1. Caricamento dati
-            control_df = pd.read_csv(th_path)
-            control_row = control_df.query(f"policy_name == '{p}'")
-            
-            if control_row.empty:
-                continue
-                
-            specific_test_name = control_row['test_name'].values[0]
-            json_path = th_path.rsplit('/', 1)[0] + '/' + specific_test_name + '_info.json'
-            
-            with open(json_path, 'r') as f:
-                specific_test_data = json.load(f)
-            
-            
-            # 2. Elaborazione e calcolo metriche personalizzate
-            current_episodes = filter_and_enance_data(specific_test_data['data'], filtering_function)
-            
-            # 4. Aggregazione nel dizionario raw_data
-            if th_list[i] in raw_data:
-                raw_data[th_list[i]].extend(current_episodes)
-            else:
-                raw_data[th_list[i]] = current_episodes
-
-        # --- All'interno della tua funzione, dopo aver accumulato tutti gli episodi ---
-
-        for th, episodes in raw_data.items():
-            if outlier_percentage > 0 :
-                # 1. Identifichiamo gli indici degli outliers per m1, m2 (e m3 se vuoi)
-                outliers_to_remove = set()
-                outliers_to_remove |= get_outlier_indices(episodes, m1, outlier_percentage)
-                outliers_to_remove |= get_outlier_indices(episodes, m2, outlier_percentage)
-
-                cleaned_episodes = [
-                    ep for i, ep in enumerate(episodes) 
-                    if i not in outliers_to_remove
-                ]
-                
-                raw_data[th] = cleaned_episodes
-            else:
-                raw_data[th] = episodes
-                        
-        data_liste.append([raw_data])
-        metriche_liste.append((m1, m2))
-        labels.append([p])
 
     # --- Parte di Visualizzazione ---
     nrows = math.ceil(len(data_liste) / ncols)

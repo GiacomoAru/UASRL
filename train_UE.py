@@ -252,17 +252,32 @@ ACTION_SIZE = info_test['metadata']['other_config']['action_size']
 ACTION_MIN = info_test['metadata']['other_config']['min_action']
 ACTION_MAX = info_test['metadata']['other_config']['max_action']
 
-INPUT_STACK = info_test['metadata']['train_config']['input_stack']
+INPUT_STACK = 4
 TOTAL_STATE_SIZE = (STATE_SIZE + RAYCAST_SIZE)*INPUT_STACK
 
 print(f"Loading actor network")
-actor = OldDenseActor(
-    TOTAL_STATE_SIZE,
-    ACTION_SIZE,
-    ACTION_MIN,
-    ACTION_MAX,
-    [256, 256, 256]
-).to(DEVICE)
+if 'LAGPPO' in args.p_name:
+    actor = LagPPOAgent(TOTAL_STATE_SIZE,
+                        ACTION_SIZE,
+                        ACTION_MIN,
+                        ACTION_MAX,
+                        256,
+    ).to(DEVICE)
+elif 'PPO' in args.p_name:
+    actor = PPOAgent(TOTAL_STATE_SIZE,
+                        ACTION_SIZE,
+                        ACTION_MIN,
+                        ACTION_MAX,
+                        256
+    ).to(DEVICE)
+else:
+    actor = OldDenseActor(
+        TOTAL_STATE_SIZE,
+        ACTION_SIZE,
+        ACTION_MIN,
+        ACTION_MAX,
+        [256, 256, 256]
+    ).to(DEVICE)
 load_models(actor, save_path='./models/' + args.p_name, suffix='_best', DEVICE=DEVICE)
 
 # 1. Dati

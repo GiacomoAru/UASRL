@@ -418,4 +418,5 @@ else:
 DEVICE = torch.device(device_str)
 print(f"Using device: {DEVICE}")
 
-train_ppo(args, agent_config, obstacles_config, other_config)
+for i in range(5):
+    train_ppo(args, agent_config, obstacles_config, other_config)

@@ -1092,8 +1092,8 @@ def update_stats_from_message_rm(all_stats, success_stats, failure_stats, msg):
     msg.pop('id', None)
 
     # Metriche derivate
-    msg['path_lenght_ratio'] = msg['distance_traveled'] / msg['path_length']
-    msg['SPL'] = msg['success'] * (msg['path_length']/max(msg['path_length'], msg['distance_traveled']))
+    msg['path_lenght_ratio'] = msg['distance_traveled'] / msg['path_length'] if msg['path_length'] > 0 else 0.0
+    msg['SPL'] = msg['success'] * (msg['path_length']/max(msg['path_length'], msg['distance_traveled']) if max(msg['path_length'], msg['distance_traveled']) else 0.0)
 
     # Aggiorna le stats
     update_stats_helper(all_stats, msg)

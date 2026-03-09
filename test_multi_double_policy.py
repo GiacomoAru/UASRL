@@ -34,6 +34,7 @@ def test(env,
          other_config,
          
          actor,
+         actor_safe,
          unc_ensamble,
          unc_enamble_norm_stats,
          
@@ -118,6 +119,7 @@ def test(env,
                         None,   # last action taken
                         0.0,    # last epistemic estimate
                         True,   # last UF activation
+                        None    # last action safe policy
                     ]
                     
                 # Time to decide an action
@@ -145,6 +147,9 @@ def test(env,
                     action = action_torch[0].detach().cpu().numpy()
                     testing_stats['policy_time'].update(time.time() - prev_time)
                     
+                    safe_action_torch, _, _, _, _ = actor_safe.get_action(torch.tensor(corrected_obs, dtype=torch.float32, device=DEVICE).unsqueeze(0), args.actor_std)
+                    safe_action = safe_action_torch[0].detach().cpu().numpy()
+                    
                     if args.uf: 
                         prev_time = time.time()
                         obs_tensor = torch.tensor(corrected_obs, dtype=torch.float32, device=DEVICE).unsqueeze(0)
@@ -170,6 +175,7 @@ def test(env,
                     # Update agent memory
                     cumulative_obs[id][1] = corrected_obs
                     cumulative_obs[id][2] = action
+                    cumulative_obs[id][5] = safe_action
                     
                     # Start new episode if not already tracked
                     if id not in running_episodes: running_episodes[id] = []
@@ -188,20 +194,7 @@ def test(env,
                 cbf_action = np.zeros(2)
                 if args.cbf:
                     prev_time = time.time()
-                    cbf_action = CBF_from_obs(
-                        actual_obs[RAYCAST_SIZE*(STACK_NUMBER - 1):RAYCAST_SIZE*STACK_NUMBER], 
-                        policy_action,
-                        
-                        3,
-                        1,
-                        90,
-                        
-                        args.d_safe,
-                        args.alpha,
-                        args.d_safe_mul,
-                        
-                        angoli_radianti_precalcolati
-                    )
+                    cbf_action = cumulative_obs[id][5] 
                     testing_stats['cbf_time'].update(time.time() - prev_time)
                         
                     # Ensure minimum forward velocity
@@ -234,9 +227,9 @@ def test(env,
                         cbf_action[0], 
                         cbf_action[1],
                         
-                        cumulative_obs[id][4]*100,
+                        cumulative_obs[id][4],
                         percentile_real_value,
-                        cumulative_obs[id][3]*100
+                        cumulative_obs[id][3]
                     ) 
                                                         
                 # Apply final action to environment
@@ -424,6 +417,16 @@ for obs_config_path in args.obstacles_config_path:
             ).to(DEVICE)
         load_models(actor, save_path='./models/' + p_name, suffix='_best', DEVICE=DEVICE)
         
+        
+        actor_safe = OldDenseActor(
+            TOTAL_STATE_SIZE,
+            ACTION_SIZE,
+            ACTION_MIN,
+            ACTION_MAX,
+            [256, 256, 256]
+        ).to(DEVICE)
+        load_models(actor_safe, save_path='./models/' + 'NEW_TR_SIMPLEWP_5819553', suffix='_best', DEVICE=DEVICE)
+        
         if args.uf:
             if args.ue_action_type == 'distribution':
                 ens_input_dim = (21 + 7)*4 + 4
@@ -438,23 +441,24 @@ for obs_config_path in args.obstacles_config_path:
             
         try:
             other_stats, episodic_stats, dataset = test(env, 
-                env_info,
-                param_channel,
-                
-                args,
-                agent_config,
-                obstacles_config,
-                other_config,
-                
-                actor, 
-                ue,
-                ue_norm,
-                
-                BEHAVIOUR_NAME,
-                STATE_SIZE,
-                RAYCAST_SIZE,
-                train_config['input_stack'],
-                DEVICE)
+                    env_info,
+                    param_channel,
+                    
+                    args,
+                    agent_config,
+                    obstacles_config,
+                    other_config,
+                    
+                    actor,
+                    actor_safe, 
+                    ue,
+                    ue_norm,
+                    
+                    BEHAVIOUR_NAME,
+                    STATE_SIZE,
+                    RAYCAST_SIZE,
+                    train_config['input_stack'],
+                    DEVICE)
             
         except Exception as e:
             # 1. Messaggio semplice

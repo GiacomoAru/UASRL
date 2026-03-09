@@ -27,7 +27,7 @@ other_config_path: "./cf/other.yaml"
 # ==========================================
 # 3. TRAINING FLOW (ROLLOUTS)
 # ==========================================
-total_timesteps: 500000 # PPO è on-policy, richiede più step totali rispetto a SAC
+total_timesteps: 400000
 num_steps: 8192         # Step raccolti per ogni agente prima di un update (Rollout buffer size)
 batch_size: 512
 
@@ -46,16 +46,16 @@ anneal_lr: true         # Se true, riduce linearmente il LR fino a 0 a fine trai
 gamma: 0.99             # Discount factor
 gae_lambda: 0.95        # Generalized Advantage Estimation (bilancia bias/variance)
 clip_coef: 0.2          # Epsilon di clipping per la PPO loss (es. 0.1 - 0.2)
-ent_coef: 0.001          # Coefficiente entropia (incoraggia l'esplorazione)
+ent_coef: 0.001         # Coefficiente entropia (incoraggia l'esplorazione)
 vf_coef: 0.5            # Peso della Loss della Value Function (Critic)
 max_grad_norm: 0.5
 
 # lagrangian var
-cost_limit: 10.0       # Uguale al safety_threshold di SAC
-cost_vf_coef: 0.5      # Valore standard per bilanciare la loss
-init_lambda: 0.01      # Inizio "soft" come in SAC
-lambda_lr: 0.05        # MOLTO più alto di SAC (vedi spiegazione sotto)
-d_safe: 0.3            # Invariato (è una proprietà fisica dell'ambiente)
+cost_limit: 10.0       
+cost_vf_coef: 0.5      
+init_lambda: 0.01      
+lambda_lr: 0.05       
+d_safe: 0.3            
 
 # ==========================================
 # 6. LOGICA DI AGGIORNAMENTO

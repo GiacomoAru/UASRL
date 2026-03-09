@@ -20,6 +20,7 @@ from mlagents_envs.side_channel.environment_parameters_channel import Environmen
 from gymnasium import spaces 
 
 # Assumo che training_utils contenga le tue funzioni helper
+from train_PPO_multi import train_ppo
 from training_utils import *
 
 
@@ -27,7 +28,7 @@ from training_utils import *
 # MAIN TRAIN FUNCTION
 # ==============================================================================
 
-def train_ppo(args, agent_config, obstacles_config, other_config):
+def train_lagppo(args, agent_config, obstacles_config, other_config):
     
     args.seed = random.randint(0, 2**16)
     print('Training PPO with the following parameters:')
@@ -427,4 +428,5 @@ else:
 DEVICE = torch.device(device_str)
 print(f"Using device: {DEVICE}")
 
-train_ppo(args, agent_config, obstacles_config, other_config)
+for i in range(5):
+    train_lagppo(args, agent_config, obstacles_config, other_config)

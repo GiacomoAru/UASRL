@@ -20,14 +20,14 @@ test_lib: false
 base_time: 1765457030
 
 # Percorsi configurazioni specifiche
-agent_config_path: "./cf/agent.yaml"
+agent_config_path: "./cf/agent_train_sfg.yaml"
 obstacles_config_path: "./cf/obstacles_simple.yaml"
 other_config_path: "./cf/other.yaml"
 
 # ==========================================
 # 3. TRAINING FLOW & MEMORY
 # ==========================================
-total_timesteps: 100000
+total_timesteps: 50000
 learning_starts: 5000          # Passi casuali iniziali prima di allenare
 buffer_size: 100000
 batch_size: 256
