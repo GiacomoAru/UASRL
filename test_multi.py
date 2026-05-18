@@ -56,14 +56,17 @@ def test(env,
     
     print('Sending initial episode seeds...')
     for i in range(args.episode_queue_length):
-        env_info.send_episode_seed(i+args.seed) # semplice seeding per ogni episodio
+        env_info.send_episode_seed(i + args.seed) # semplice seeding per ogni episodio
     seed_sent = args.episode_queue_length
 
     if args.uf:
-        idc_unc_percentile = int(torch.argmin(torch.abs(unc_enamble_norm_stats['percentile_levels'] - args.ut)))
-        print(f"Using {unc_enamble_norm_stats['percentile_levels'][idc_unc_percentile]} Percentile for Uncertainty")
-        print(f"\treal value: {unc_enamble_norm_stats['epistemic']['percentiles'][idc_unc_percentile]}")
-        percentile_real_value = unc_enamble_norm_stats['epistemic']['percentiles'][idc_unc_percentile]
+        if args.ue_action_type == 'random':
+            percentile_real_value = args.ut
+        else:
+            idc_unc_percentile = int(torch.argmin(torch.abs(unc_enamble_norm_stats['percentile_levels'] - args.ut)))
+            print(f"Using {unc_enamble_norm_stats['percentile_levels'][idc_unc_percentile]} Percentile for Uncertainty")
+            print(f"\treal value: {unc_enamble_norm_stats['epistemic']['percentiles'][idc_unc_percentile]}")
+            percentile_real_value = unc_enamble_norm_stats['epistemic']['percentiles'][idc_unc_percentile]
     else:
         percentile_real_value = 0.0
         
@@ -148,6 +151,7 @@ def test(env,
                     if args.uf: 
                         prev_time = time.time()
                         obs_tensor = torch.tensor(corrected_obs, dtype=torch.float32, device=DEVICE).unsqueeze(0)
+                        
                         if args.ue_action_type == 'distribution':
                             ue_input = torch.cat((obs_tensor, action_mean, action_std), dim=1).to(dtype=torch.float32, device=DEVICE)
                             # ue_input = torch.tensor(ue_input, dtype=torch.float32, device=DEVICE)
@@ -155,13 +159,16 @@ def test(env,
                             ue_input = torch.cat((obs_tensor, action_torch), dim=1).to(dtype=torch.float32, device=DEVICE)
                             # ue_input = torch.tensor(ue_input, dtype=torch.float32, device=DEVICE).unsqueeze(0)
                         
-                        aleatoric_unc, epistemic_unc = predict_uncertainty(unc_ensamble, ue_input)
-                        
-                        # Calcolo vettorizzato su GPU
-                        # z_score_tensor = (epistemic_unc - unc_enamble_norm_stats['epistemic']['mean']) / unc_enamble_norm_stats['epistemic']['std']
-                        
-                        # 5. Salvataggio
-                        epistemic_unc = epistemic_unc.item() # Estrae il float dal tensore (1,)
+                        if args.ue_action_type == 'random':
+                            epistemic_unc = random.uniform(0, 1)
+                        else:
+                            aleatoric_unc, epistemic_unc = predict_uncertainty(unc_ensamble, ue_input)
+                            
+                            # Calcolo vettorizzato su GPU
+                            # z_score_tensor = (epistemic_unc - unc_enamble_norm_stats['epistemic']['mean']) / unc_enamble_norm_stats['epistemic']['std']
+                            
+                            # 5. Salvataggio
+                            epistemic_unc = epistemic_unc.item() # Estrae il float dal tensore (1,)
                         
                         cumulative_obs[id][3] = epistemic_unc
                         cumulative_obs[id][4] = epistemic_unc > percentile_real_value
@@ -358,156 +365,160 @@ torch.manual_seed(args.seed)
 torch.backends.cudnn.deterministic = args.torch_deterministic
 print(f'Seed: {args.seed}')
 
-# Create the channel
-env_info = CustomChannel()
-param_channel = EnvironmentParametersChannel()
+if type(args.build_path) == str:
+    args.build_path = [args.build_path]
+for b_path in args.build_path:
     
-# env setup
-print(f'Starting Unity Environment from build: {args.build_path}')
-env = UnityEnvironment(args.build_path,
-                    seed=args.seed,
-                    side_channels=[env_info, param_channel], 
-                    no_graphics=args.headless,
-                    worker_id=args.worker_id)
-
-print('Unity Environment connected.')
-if args.episode_queue_length > args.total_episodes:
-    args.episode_queue_length = args.total_episodes
-
-if type(args.obstacles_config_path) == str:
-    args.obstacles_config_path = [args.obstacles_config_path]
-for obs_config_path in args.obstacles_config_path:
-    
-    obstacles_config = parse_config_file(obs_config_path)
-    print('obstacles_config:')
-    pprint(obstacles_config)
-    
-    if type(args.policy_names) == str:
-        args.policy_names = [args.policy_names]
-    for p_name in args.policy_names:
+    # Create the channel
+    env_info = CustomChannel()
+    param_channel = EnvironmentParametersChannel()
         
-        additional_number = int(time.time()) - train_config["base_time"]
-        test_name = f"{args.test_name}_{additional_number}"
-        args.test_full_name = test_name
+    # env setup
+    print(f'Starting Unity Environment from build: {b_path}')
+    env = UnityEnvironment(b_path,
+                        seed=args.seed,
+                        side_channels=[env_info, param_channel], 
+                        no_graphics=args.headless,
+                        worker_id=args.worker_id)
 
-        print(f"Test name: {args.test_full_name}")
-        print(f"Policy name: {p_name}")
-        
+    print('Unity Environment connected.')
+    if args.episode_queue_length > args.total_episodes:
+        args.episode_queue_length = args.total_episodes
 
-        summary_save_filepath = args.save_path + args.test_name + ".csv"
-        specific_save_filepath = args.save_path + args.test_name + "/" + f"{args.test_full_name}"
-        os.makedirs(args.save_path, exist_ok=True)
-        os.makedirs(args.save_path + args.test_name, exist_ok=True)
+    if type(args.obstacles_config_path) == str:
+        args.obstacles_config_path = [args.obstacles_config_path]
+    for obs_config_path in args.obstacles_config_path:
         
-        print('Creating and loading actor network...')
-        if 'LAGPPO' in p_name:
-            actor = LagPPOAgent(TOTAL_STATE_SIZE,
-                                ACTION_SIZE,
-                                ACTION_MIN,
-                                ACTION_MAX,
-                                256,
-            ).to(DEVICE)
-        elif 'PPO' in p_name:
-            actor = PPOAgent(TOTAL_STATE_SIZE,
-                                ACTION_SIZE,
-                                ACTION_MIN,
-                                ACTION_MAX,
-                                256
-            ).to(DEVICE)
-        else:
-            actor = OldDenseActor(
-                TOTAL_STATE_SIZE,
-                ACTION_SIZE,
-                ACTION_MIN,
-                ACTION_MAX,
-                [256, 256, 256]
-            ).to(DEVICE)
-        load_models(actor, save_path='./models/' + p_name, suffix='_best', DEVICE=DEVICE)
+        obstacles_config = parse_config_file(obs_config_path)
+        print('obstacles_config:')
+        pprint(obstacles_config)
         
-        if args.uf:
-            if args.ue_action_type == 'distribution':
-                ens_input_dim = (21 + 7)*4 + 4
+        if type(args.policy_names) == str:
+            args.policy_names = [args.policy_names]
+        for p_name in args.policy_names:
+            
+            additional_number = int(time.time()) - train_config["base_time"]
+            test_name = f"{args.test_name}_{additional_number}"
+            args.test_full_name = test_name
+
+            print(f"Test name: {args.test_full_name}")
+            print(f"Policy name: {p_name}")
+            
+
+            summary_save_filepath = args.save_path + args.test_name + ".csv"
+            specific_save_filepath = args.save_path + args.test_name + "/" + f"{args.test_full_name}"
+            os.makedirs(args.save_path, exist_ok=True)
+            os.makedirs(args.save_path + args.test_name, exist_ok=True)
+            
+            print('Creating and loading actor network...')
+            if 'LAGPPO' in p_name:
+                actor = LagPPOAgent(TOTAL_STATE_SIZE,
+                                    ACTION_SIZE,
+                                    ACTION_MIN,
+                                    ACTION_MAX,
+                                    256,
+                ).to(DEVICE)
+            elif 'PPO' in p_name:
+                actor = PPOAgent(TOTAL_STATE_SIZE,
+                                    ACTION_SIZE,
+                                    ACTION_MIN,
+                                    ACTION_MAX,
+                                    256
+                ).to(DEVICE)
             else:
-                ens_input_dim = (21 + 7)*4 + 2
+                actor = OldDenseActor(
+                    TOTAL_STATE_SIZE,
+                    ACTION_SIZE,
+                    ACTION_MIN,
+                    ACTION_MAX,
+                    [256, 256, 256]
+                ).to(DEVICE)
+            load_models(actor, save_path='./models/' + p_name, suffix='_best', DEVICE=DEVICE)
             
-            ue = load_trained_ensemble(args.ue_path + 'unc_' + p_name, ens_input_dim, (21 + 7), DEVICE)[0]
-            ue_norm = torch.load(args.ue_path + 'unc_' + p_name + '/norm.pth', map_location=DEVICE)
-        else:
-            ue = None
-            ue_norm = None
-            
-        try:
-            other_stats, episodic_stats, dataset = test(env, 
-                env_info,
-                param_channel,
-                
-                args,
-                agent_config,
-                obstacles_config,
-                other_config,
-                
-                actor, 
-                ue,
-                ue_norm,
-                
-                BEHAVIOUR_NAME,
-                STATE_SIZE,
-                RAYCAST_SIZE,
-                train_config['input_stack'],
-                DEVICE)
-            
-        except Exception as e:
-            # 1. Messaggio semplice
-            print(f"Si è verificato un errore durante l'esecuzione: {e}")
-            
-            # 2. (Opzionale) Stampa il percorso completo dell'errore (Traceback)
-            # Questo ti dice anche la riga esatta del file dove è successo il problema
-            traceback.print_exc()
-            
-            # Chiudiamo l'ambiente e usciamo
-            env.close()
-            exit(1)
-            
-        other_stats['env_name'] = obs_config_path.split('/')[-1].split('.')[0]
-        other_stats['policy_name'] = p_name
-        other_stats['test_name'] = args.test_full_name
-        
-        other_stats['ut'] = args.ut
-        other_stats['ue_action_type'] = args.ue_action_type
-        
-        print(f'Saving summary data to: {specific_save_filepath}')
-        save_stats_to_csv(other_stats, episodic_stats, summary_save_filepath)
-        
-        # Save dataset to JSON if accumulation is enabled
-        print(f'Saving accumulated dataset to path: {specific_save_filepath}')
-        if args.accumulate_data: 
-            
-            d1 = {
-                'metadata': {
-                    'test_config': vars(args),
-                    'agent_config': agent_config,
-                    'obstacles_config': obstacles_config,
-                    'other_config': other_config
-                },
-                'data': [x[1] for x in dataset]
-            }
-            d2 = [x[0] for x in dataset]
-            
-            # Recursive helper to convert all numbers into float (JSON safe)
-            def convert_all_to_float(obj):
-                if isinstance(obj, dict):
-                    return {k: convert_all_to_float(v) for k, v in obj.items()}
-                elif isinstance(obj, (list, tuple)):
-                    return [convert_all_to_float(item) for item in obj]
-                elif isinstance(obj, (np.floating, Decimal)):
-                    return float(obj)
+            if args.uf:
+                if args.ue_action_type == 'distribution':
+                    ens_input_dim = (21 + 7)*4 + 4
                 else:
-                    return obj
+                    ens_input_dim = (21 + 7)*4 + 2
                 
-            # Save dataset with timestamp in filename
-            with open(specific_save_filepath + '_info.json', 'w+') as file:
-                file.write(json.dumps(convert_all_to_float(d1)))
-            with open(specific_save_filepath + '_transitions.json', 'w+') as file:
-                file.write(json.dumps(convert_all_to_float(d2)))
+                ue = load_trained_ensemble(args.ue_path + 'unc_' + p_name, ens_input_dim, (21 + 7), DEVICE)[0]
+                ue_norm = torch.load(args.ue_path + 'unc_' + p_name + '/norm.pth', map_location=DEVICE)
+            else:
+                ue = None
+                ue_norm = None
+                
+            try:
+                other_stats, episodic_stats, dataset = test(env, 
+                    env_info,
+                    param_channel,
+                    
+                    args,
+                    agent_config,
+                    obstacles_config,
+                    other_config,
+                    
+                    actor, 
+                    ue,
+                    ue_norm,
+                    
+                    BEHAVIOUR_NAME,
+                    STATE_SIZE,
+                    RAYCAST_SIZE,
+                    train_config['input_stack'],
+                    DEVICE)
+                
+            except Exception as e:
+                # 1. Messaggio semplice
+                print(f"Si è verificato un errore durante l'esecuzione: {e}")
+                
+                # 2. (Opzionale) Stampa il percorso completo dell'errore (Traceback)
+                # Questo ti dice anche la riga esatta del file dove è successo il problema
+                traceback.print_exc()
+                
+                # Chiudiamo l'ambiente e usciamo
+                env.close()
+                exit(1)
+                
+            other_stats['env_name'] = obs_config_path.split('/')[-1].split('.')[0]
+            other_stats['policy_name'] = p_name
+            other_stats['test_name'] = args.test_full_name
+            
+            other_stats['ut'] = args.ut
+            other_stats['ue_action_type'] = args.ue_action_type
+            
+            print(f'Saving summary data to: {specific_save_filepath}')
+            save_stats_to_csv(other_stats, episodic_stats, summary_save_filepath)
+            
+            # Save dataset to JSON if accumulation is enabled
+            print(f'Saving accumulated dataset to path: {specific_save_filepath}')
+            if args.accumulate_data: 
+                
+                d1 = {
+                    'metadata': {
+                        'test_config': vars(args),
+                        'agent_config': agent_config,
+                        'obstacles_config': obstacles_config,
+                        'other_config': other_config
+                    },
+                    'data': [x[1] for x in dataset]
+                }
+                d2 = [x[0] for x in dataset]
+                
+                # Recursive helper to convert all numbers into float (JSON safe)
+                def convert_all_to_float(obj):
+                    if isinstance(obj, dict):
+                        return {k: convert_all_to_float(v) for k, v in obj.items()}
+                    elif isinstance(obj, (list, tuple)):
+                        return [convert_all_to_float(item) for item in obj]
+                    elif isinstance(obj, (np.floating, Decimal)):
+                        return float(obj)
+                    else:
+                        return obj
+                    
+                # Save dataset with timestamp in filename
+                with open(specific_save_filepath + '_info.json', 'w+') as file:
+                    file.write(json.dumps(convert_all_to_float(d1)))
+                with open(specific_save_filepath + '_transitions.json', 'w+') as file:
+                    file.write(json.dumps(convert_all_to_float(d2)))
 
-env.close()
+    env.close()

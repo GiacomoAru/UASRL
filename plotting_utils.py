@@ -2,6 +2,7 @@ import os
 import json
 import math
 from collections import defaultdict
+import copy
 
 from ipykernel import control
 import numpy as np
@@ -360,13 +361,14 @@ def plot_metric_series_on_ax(
     return ax
 
 
-def filter_and_enance_data(ep_list, filtering_function=lambda x: True):
+def filter_and_enance_data(ep_list, filtering_function=lambda x: True, transitions=None):
     filtered_ep_list = []
-    for ep in ep_list:
+    filtered_t_list = []
+    for i, ep in enumerate(ep_list):
         if filtering_function(ep):
             if ep['length'] == 1999:
                 ep['success'] = 0
-            if ep['length'] == 1999:
+            if ep['length'] == 0:
                 ep['success'] = 0
                   
             # Calcolo metriche aggiuntive
@@ -384,9 +386,14 @@ def filter_and_enance_data(ep_list, filtering_function=lambda x: True):
             
             ep_ext['vel_success'] = ep_ext['velocity'] if ep['success'] == 1 else None
             ep_ext['length_success'] = ep['length'] if ep['success'] == 1 else None
-            filtered_ep_list.append(ep_ext)
             
-    return filtered_ep_list
+            filtered_ep_list.append(ep_ext)
+            if transitions is not None:
+                filtered_t_list.append(transitions[i])
+    if transitions is not None:
+        return filtered_ep_list, filtered_t_list
+    else:
+        return filtered_ep_list
 
 def get_outlier_indices(episodes, metric, percentage=0.05):
     """
@@ -433,13 +440,18 @@ def get_outlier_indices(episodes, metric, percentage=0.05):
 
     return low_indices | high_indices
 
-def load_test_from_csv(csv_path, filtering_function = lambda x: True, policy_order=None, env_name=None):
+def load_test_from_csv(csv_path, 
+                       
+                       filtering_function = lambda x: True, 
+                       policy_order=None, 
+                       env_name=None,
+                       transitions=False):
     # 1. Caricamento del DataFrame
     control_df = pd.read_csv(csv_path)
     data = {}
     print(f'Loading data from {csv_path}')
     
-    # --- NUOVO: Ordinamento personalizzato ---
+    # --- Ordinamento personalizzato ---
     if policy_order is not None:
         # Diciamo a Pandas qual è l'ordine ufficiale per 'policy_name'
         control_df['policy_name'] = pd.Categorical(
@@ -464,19 +476,26 @@ def load_test_from_csv(csv_path, filtering_function = lambda x: True, policy_ord
             
         specific_test_name = control_row['test_name'].values[0]
         json_path = csv_path.rsplit('/', 1)[0] + '/' + specific_test_name + '_info.json'
-        
         with open(json_path, 'r') as f:
             specific_test_data = json.load(f)
+            
+        if transitions:
+            json_t_path = csv_path.rsplit('/', 1)[0] + '/' + specific_test_name + '_transitions.json'
+            with open(json_t_path, 'r') as f:
+                specific_test_t_data = json.load(f)
+
+            ep_data, t_data = filter_and_enance_data(specific_test_data['data'], filtering_function, specific_test_t_data)
+            data[p_name] = (ep_data, t_data)
+            
+        else:
+            ep_data = filter_and_enance_data(specific_test_data['data'], filtering_function)
+            data[p_name] = ep_data
         
-        ep_data = filter_and_enance_data(specific_test_data['data'], filtering_function)
         print(f'\t{len(ep_data)} data for {p_name}')
-        
-        # 2. Elaborazione e calcolo metriche personalizzate
-        data[p_name] = ep_data
     
     return data
  
-def calcola_statistiche_policy(lista_dizionari, cols_to_keep=None):
+def calcola_statistiche_policy(lista_dizionari, cols_to_keep=None, traduzione=None, expected_episodes=None, seed=1):
     """
     Calcola mean e std per ogni metrica per policy.
 
@@ -488,19 +507,45 @@ def calcola_statistiche_policy(lista_dizionari, cols_to_keep=None):
     cols_to_keep: lista di metriche BASE (es. ["success_nc","reward","cost"]).
                  Se None, usa l'ordine delle metriche del primo df_episodi.
     """
-    import numpy as np
-    lista_dataframe = []
 
+    lista_dataframe = []
+    rng = np.random.default_rng(seed)
+    
     for dizionario in lista_dizionari:
         righe_dati = []
         ordine_metriche_default = None
 
         for nome_policy, episodi in dizionario.items():
-            df_episodi = pd.DataFrame(episodi)
+            episodi = list(episodi)
+            n_originale = len(episodi)
+            
+            if expected_episodes is not None:
+                if expected_episodes < 0:
+                    raise ValueError("expected_episodes deve essere >= 0")
 
+                if n_originale == 0 and expected_episodes > 0:
+                    raise ValueError(
+                        f"Nessun episodio disponibile per la policy '{nome_policy}', "
+                        f"impossibile arrivare a {expected_episodes}"
+                    )
+
+                if n_originale > expected_episodes:
+                    idx = rng.choice(n_originale, size=expected_episodes, replace=False)
+                    episodi = [episodi[i] for i in idx]
+
+                elif n_originale < expected_episodes:
+                    missing = expected_episodes - n_originale
+                    extra_idx = rng.choice(n_originale, size=missing, replace=True)
+                    extra_episodi = [copy.deepcopy(episodi[i]) for i in extra_idx]
+                    episodi = episodi + extra_episodi
+            
+            df_episodi = pd.DataFrame(episodi)
+               
             if ordine_metriche_default is None:
                 ordine_metriche_default = list(df_episodi.columns)
 
+            if traduzione and nome_policy in traduzione:
+                nome_policy = traduzione[nome_policy]   
             riga = {"policy_name": nome_policy}
 
             # calcolo robusto: converto ogni colonna a numerico (bool e "0"/"1" inclusi)
