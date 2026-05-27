@@ -11,7 +11,7 @@ spawn_away_from_walls: true
 # 2. ALGORITMO DI GENERAZIONE (PROCEDURALE)
 # ==========================================
 # Parametri Cellular Automata
-initial_fill_percentage: 0.03   # Densità iniziale (modificato dal Curriculum Learning)
+initial_fill_percentage: 0.03   # Densità iniziale
 smoothing_iterations: 1        # Passaggi di smoothing per pulire la mappa
 fill_threshold: 1               # Vicini necessari per creare un muro
 clear_threshold: 0              # Vicini massimi per rimuovere un muro (isole)

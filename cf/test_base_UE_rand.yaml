@@ -1,0 +1,70 @@
+# =========================
+# Experiment Identity
+# =========================
+test_name: "debug_test"
+machine_name: "personal"
+seed: 78789
+base_time: 1765457030
+
+train_config_path: "./cf/train_SAC.yaml"
+
+# =========================
+# Policies
+# =========================
+policy_names:  # inutile
+#   - NEW_TR_SIMPLE_EASY_5804798
+#   - NEW_TR_SIMPLEWP_EASY_5841772
+   - PPO_RETRAIN_7154081
+   - PPOWP_7167668
+
+policy_layers: [256, 256, 256]
+actor_std: 0.95
+
+# =========================
+# Environment / Obstacles
+# =========================
+obstacles_config_path: ./cf/obstacles_simple_safw.yaml
+#  - ./cf/obstacles_ood1.yaml
+#  - ./cf/obstacles_ood3.yaml
+
+build_path: "./unity_build/1xlimoteststatic_1502_wind/UASRL.exe"
+
+agent_config_path: "./cf/agent_test_sfg.yaml"
+
+headless: false
+worker_id: 0
+
+decision_frame_period: 5
+send_debug_action: true
+
+# =========================
+# Testing Configuration
+# =========================
+total_episodes: 5
+episode_queue_length: 18
+accumulate_data: false
+
+cbf: true
+d_safe: 0.25
+d_safe_mul: 2
+alpha: 1.5
+cbf_min_forward_velocity: 0.05
+
+uf: true
+ut: 0.75
+ue_path: './UE/'
+ue_action_type: 'random'
+
+# =========================
+# Torch
+# =========================
+cuda: 0
+torch_deterministic: true
+
+# =========================
+# Logging & Saving
+# =========================
+metrics_log_interval: 50
+save_path: "./results/"
+
+special_th: ST1

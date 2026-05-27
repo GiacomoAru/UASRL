@@ -21,6 +21,40 @@ from training_utils import *
 from testing_utils import *
 from uncertainty_utils import *
 
+special_th = {
+    "OOD1": {
+        "NEW_TR_SIMPLE_EASY_5804798": [0.5094744861125946, 0.90],
+        "NEW_TR_SIMPLEWP_EASY_5841772": [0.5090510547161102, 0.90],
+        "PPO_RETRAIN_7154081": [0.5684675574302673, 0.80],
+        "PPOWP_7167668": [0.6794447898864746, 0.80]  
+    },
+    "OOD3": {
+        "NEW_TR_SIMPLE_EASY_5804798": [0.31788742542266846, 0.90],
+        "NEW_TR_SIMPLEWP_EASY_5841772": [0.30700379610061646, 0.90],
+        "PPO_RETRAIN_7154081": [0.41099679470062256, 0.85],
+        "PPOWP_7167668": [0.7184596955776215, 0.85]
+    },
+    "ST1": {
+        "NEW_TR_SIMPLE_EASY_5804798": [0.3536718487739563, 0.95],  
+        "NEW_TR_SIMPLEWP_EASY_5841772": [0.4616701602935791, 0.95],
+        "PPO_RETRAIN_7154081": [0.08668637275695801, 0.80],
+        "PPOWP_7167668": [0.22897356748580933, 0.80]
+    },
+    "ST2": {
+        "NEW_TR_SIMPLE_EASY_5804798": [0.12385386228561401, 0.90],
+        "NEW_TR_SIMPLEWP_EASY_5841772": [0.2372249960899353, 0.90],
+        "PPO_RETRAIN_7154081": [0.4210406541824341, 0.90],
+        "PPOWP_7167668": [0.6072006821632385, 0.85]
+    },
+    "SA": {
+        "NEW_TR_SIMPLE_EASY_5804798": [0.017066597938537598, 0.90],
+        "NEW_TR_SIMPLEWP_EASY_5841772": [0.18005579710006714, 0.90],
+        "PPO_RETRAIN_7154081": [0.12011522054672241, 0.85],
+        "PPOWP_7167668": [0.5489180982112885, 0.85]
+    }
+}
+
+
 # [markdown]
 #  Testing Function
 
@@ -60,10 +94,13 @@ def test(env,
     seed_sent = args.episode_queue_length
 
     if args.uf:
-        idc_unc_percentile = int(torch.argmin(torch.abs(unc_enamble_norm_stats['percentile_levels'] - args.ut)))
-        print(f"Using {unc_enamble_norm_stats['percentile_levels'][idc_unc_percentile]} Percentile for Uncertainty")
-        print(f"\treal value: {unc_enamble_norm_stats['epistemic']['percentiles'][idc_unc_percentile]}")
-        percentile_real_value = unc_enamble_norm_stats['epistemic']['percentiles'][idc_unc_percentile]
+        if args.ue_action_type == 'random':
+            percentile_real_value = args.ut
+        else:
+            idc_unc_percentile = int(torch.argmin(torch.abs(unc_enamble_norm_stats['percentile_levels'] - args.ut)))
+            print(f"Using {unc_enamble_norm_stats['percentile_levels'][idc_unc_percentile]} Percentile for Uncertainty")
+            print(f"\treal value: {unc_enamble_norm_stats['epistemic']['percentiles'][idc_unc_percentile]}")
+            percentile_real_value = unc_enamble_norm_stats['epistemic']['percentiles'][idc_unc_percentile]
     else:
         percentile_real_value = 0.0
         
@@ -148,6 +185,7 @@ def test(env,
                     if args.uf: 
                         prev_time = time.time()
                         obs_tensor = torch.tensor(corrected_obs, dtype=torch.float32, device=DEVICE).unsqueeze(0)
+                        
                         if args.ue_action_type == 'distribution':
                             ue_input = torch.cat((obs_tensor, action_mean, action_std), dim=1).to(dtype=torch.float32, device=DEVICE)
                             # ue_input = torch.tensor(ue_input, dtype=torch.float32, device=DEVICE)
@@ -155,13 +193,16 @@ def test(env,
                             ue_input = torch.cat((obs_tensor, action_torch), dim=1).to(dtype=torch.float32, device=DEVICE)
                             # ue_input = torch.tensor(ue_input, dtype=torch.float32, device=DEVICE).unsqueeze(0)
                         
-                        aleatoric_unc, epistemic_unc = predict_uncertainty(unc_ensamble, ue_input)
-                        
-                        # Calcolo vettorizzato su GPU
-                        # z_score_tensor = (epistemic_unc - unc_enamble_norm_stats['epistemic']['mean']) / unc_enamble_norm_stats['epistemic']['std']
-                        
-                        # 5. Salvataggio
-                        epistemic_unc = epistemic_unc.item() # Estrae il float dal tensore (1,)
+                        if args.ue_action_type == 'random':
+                            epistemic_unc = random.uniform(0, 1)
+                        else:
+                            aleatoric_unc, epistemic_unc = predict_uncertainty(unc_ensamble, ue_input)
+                            
+                            # Calcolo vettorizzato su GPU
+                            # z_score_tensor = (epistemic_unc - unc_enamble_norm_stats['epistemic']['mean']) / unc_enamble_norm_stats['epistemic']['std']
+                            
+                            # 5. Salvataggio
+                            epistemic_unc = epistemic_unc.item() # Estrae il float dal tensore (1,)
                         
                         cumulative_obs[id][3] = epistemic_unc
                         cumulative_obs[id][4] = epistemic_unc > percentile_real_value
@@ -386,132 +427,139 @@ for b_path in args.build_path:
         print('obstacles_config:')
         pprint(obstacles_config)
         
-        if type(args.policy_names) == str:
-            args.policy_names = [args.policy_names]
-        for p_name in args.policy_names:
+        
+        special_th_values = special_th[args.special_th]
+        for p, special_name in enumerate(special_th_values):
+            if p < 2: continue
+            p_name = special_name
             
-            additional_number = int(time.time()) - train_config["base_time"]
-            test_name = f"{args.test_name}_{additional_number}"
-            args.test_full_name = test_name
+            for random_threshold in special_th_values[special_name]:
+                print(f"Testing with special threshold: {random_threshold} for policy {p_name}")
+                args.ut = random_threshold
 
-            print(f"Test name: {args.test_full_name}")
-            print(f"Policy name: {p_name}")
             
+                additional_number = int(time.time()) - train_config["base_time"]
+                test_name = f"{args.test_name}_{additional_number}"
+                args.test_full_name = test_name
 
-            summary_save_filepath = args.save_path + args.test_name + ".csv"
-            specific_save_filepath = args.save_path + args.test_name + "/" + f"{args.test_full_name}"
-            os.makedirs(args.save_path, exist_ok=True)
-            os.makedirs(args.save_path + args.test_name, exist_ok=True)
-            
-            print('Creating and loading actor network...')
-            if 'LAGPPO' in p_name:
-                actor = LagPPOAgent(TOTAL_STATE_SIZE,
-                                    ACTION_SIZE,
-                                    ACTION_MIN,
-                                    ACTION_MAX,
-                                    256,
-                ).to(DEVICE)
-            elif 'PPO' in p_name:
-                actor = PPOAgent(TOTAL_STATE_SIZE,
-                                    ACTION_SIZE,
-                                    ACTION_MIN,
-                                    ACTION_MAX,
-                                    256
-                ).to(DEVICE)
-            else:
-                actor = OldDenseActor(
-                    TOTAL_STATE_SIZE,
-                    ACTION_SIZE,
-                    ACTION_MIN,
-                    ACTION_MAX,
-                    [256, 256, 256]
-                ).to(DEVICE)
-            load_models(actor, save_path='./models/' + p_name, suffix='_best', DEVICE=DEVICE)
-            
-            if args.uf:
-                if args.ue_action_type == 'distribution':
-                    ens_input_dim = (21 + 7)*4 + 4
+                print(f"Test name: {args.test_full_name}")
+                print(f"Policy name: {p_name}")
+                
+
+                summary_save_filepath = args.save_path + args.test_name + ".csv"
+                specific_save_filepath = args.save_path + args.test_name + "/" + f"{args.test_full_name}"
+                os.makedirs(args.save_path, exist_ok=True)
+                os.makedirs(args.save_path + args.test_name, exist_ok=True)
+                
+                print('Creating and loading actor network...')
+                if 'LAGPPO' in p_name:
+                    actor = LagPPOAgent(TOTAL_STATE_SIZE,
+                                        ACTION_SIZE,
+                                        ACTION_MIN,
+                                        ACTION_MAX,
+                                        256,
+                    ).to(DEVICE)
+                elif 'PPO' in p_name:
+                    actor = PPOAgent(TOTAL_STATE_SIZE,
+                                        ACTION_SIZE,
+                                        ACTION_MIN,
+                                        ACTION_MAX,
+                                        256
+                    ).to(DEVICE)
                 else:
-                    ens_input_dim = (21 + 7)*4 + 2
+                    actor = OldDenseActor(
+                        TOTAL_STATE_SIZE,
+                        ACTION_SIZE,
+                        ACTION_MIN,
+                        ACTION_MAX,
+                        [256, 256, 256]
+                    ).to(DEVICE)
+                load_models(actor, save_path='./models/' + p_name, suffix='_best', DEVICE=DEVICE)
                 
-                ue = load_trained_ensemble(args.ue_path + 'unc_' + p_name, ens_input_dim, (21 + 7), DEVICE)[0]
-                ue_norm = torch.load(args.ue_path + 'unc_' + p_name + '/norm.pth', map_location=DEVICE)
-            else:
-                ue = None
-                ue_norm = None
-                
-            try:
-                other_stats, episodic_stats, dataset = test(env, 
-                    env_info,
-                    param_channel,
-                    
-                    args,
-                    agent_config,
-                    obstacles_config,
-                    other_config,
-                    
-                    actor, 
-                    ue,
-                    ue_norm,
-                    
-                    BEHAVIOUR_NAME,
-                    STATE_SIZE,
-                    RAYCAST_SIZE,
-                    train_config['input_stack'],
-                    DEVICE)
-                
-            except Exception as e:
-                # 1. Messaggio semplice
-                print(f"Si è verificato un errore durante l'esecuzione: {e}")
-                
-                # 2. (Opzionale) Stampa il percorso completo dell'errore (Traceback)
-                # Questo ti dice anche la riga esatta del file dove è successo il problema
-                traceback.print_exc()
-                
-                # Chiudiamo l'ambiente e usciamo
-                env.close()
-                exit(1)
-                
-            other_stats['env_name'] = obs_config_path.split('/')[-1].split('.')[0]
-            other_stats['policy_name'] = p_name
-            other_stats['test_name'] = args.test_full_name
-            
-            other_stats['ut'] = args.ut
-            other_stats['ue_action_type'] = args.ue_action_type
-            
-            print(f'Saving summary data to: {specific_save_filepath}')
-            save_stats_to_csv(other_stats, episodic_stats, summary_save_filepath)
-            
-            # Save dataset to JSON if accumulation is enabled
-            print(f'Saving accumulated dataset to path: {specific_save_filepath}')
-            if args.accumulate_data: 
-                
-                d1 = {
-                    'metadata': {
-                        'test_config': vars(args),
-                        'agent_config': agent_config,
-                        'obstacles_config': obstacles_config,
-                        'other_config': other_config
-                    },
-                    'data': [x[1] for x in dataset]
-                }
-                d2 = [x[0] for x in dataset]
-                
-                # Recursive helper to convert all numbers into float (JSON safe)
-                def convert_all_to_float(obj):
-                    if isinstance(obj, dict):
-                        return {k: convert_all_to_float(v) for k, v in obj.items()}
-                    elif isinstance(obj, (list, tuple)):
-                        return [convert_all_to_float(item) for item in obj]
-                    elif isinstance(obj, (np.floating, Decimal)):
-                        return float(obj)
+                if args.uf and args.ue_action_type != 'random':
+                    if args.ue_action_type == 'distribution':
+                        ens_input_dim = (21 + 7)*4 + 4
                     else:
-                        return obj
+                        ens_input_dim = (21 + 7)*4 + 2
                     
-                # Save dataset with timestamp in filename
-                with open(specific_save_filepath + '_info.json', 'w+') as file:
-                    file.write(json.dumps(convert_all_to_float(d1)))
-                with open(specific_save_filepath + '_transitions.json', 'w+') as file:
-                    file.write(json.dumps(convert_all_to_float(d2)))
+                    ue = load_trained_ensemble(args.ue_path + 'unc_' + p_name, ens_input_dim, (21 + 7), DEVICE)[0]
+                    ue_norm = torch.load(args.ue_path + 'unc_' + p_name + '/norm.pth', map_location=DEVICE)
+                else:
+                    ue = None
+                    ue_norm = None
+                    
+                try:
+                    other_stats, episodic_stats, dataset = test(env, 
+                        env_info,
+                        param_channel,
+                        
+                        args,
+                        agent_config,
+                        obstacles_config,
+                        other_config,
+                        
+                        actor, 
+                        ue,
+                        ue_norm,
+                        
+                        BEHAVIOUR_NAME,
+                        STATE_SIZE,
+                        RAYCAST_SIZE,
+                        train_config['input_stack'],
+                        DEVICE)
+                    
+                except Exception as e:
+                    # 1. Messaggio semplice
+                    print(f"Si è verificato un errore durante l'esecuzione: {e}")
+                    
+                    # 2. (Opzionale) Stampa il percorso completo dell'errore (Traceback)
+                    # Questo ti dice anche la riga esatta del file dove è successo il problema
+                    traceback.print_exc()
+                    
+                    # Chiudiamo l'ambiente e usciamo
+                    env.close()
+                    exit(1)
+                    
+                other_stats['env_name'] = obs_config_path.split('/')[-1].split('.')[0]
+                other_stats['policy_name'] = p_name
+                other_stats['test_name'] = args.test_full_name
+                
+                other_stats['ut'] = args.ut
+                other_stats['ue_action_type'] = args.ue_action_type
+                
+                print(f'Saving summary data to: {specific_save_filepath}')
+                save_stats_to_csv(other_stats, episodic_stats, summary_save_filepath)
+                
+                # Save dataset to JSON if accumulation is enabled
+                print(f'Saving accumulated dataset to path: {specific_save_filepath}')
+                if args.accumulate_data: 
+                    
+                    d1 = {
+                        'metadata': {
+                            'test_config': vars(args),
+                            'agent_config': agent_config,
+                            'obstacles_config': obstacles_config,
+                            'other_config': other_config
+                        },
+                        'data': [x[1] for x in dataset]
+                    }
+                    d2 = [x[0] for x in dataset]
+                    
+                    # Recursive helper to convert all numbers into float (JSON safe)
+                    def convert_all_to_float(obj):
+                        if isinstance(obj, dict):
+                            return {k: convert_all_to_float(v) for k, v in obj.items()}
+                        elif isinstance(obj, (list, tuple)):
+                            return [convert_all_to_float(item) for item in obj]
+                        elif isinstance(obj, (np.floating, Decimal)):
+                            return float(obj)
+                        else:
+                            return obj
+                        
+                    # Save dataset with timestamp in filename
+                    with open(specific_save_filepath + '_info.json', 'w+') as file:
+                        file.write(json.dumps(convert_all_to_float(d1)))
+                    with open(specific_save_filepath + '_transitions.json', 'w+') as file:
+                        file.write(json.dumps(convert_all_to_float(d2)))
 
     env.close()

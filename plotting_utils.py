@@ -445,7 +445,8 @@ def load_test_from_csv(csv_path,
                        filtering_function = lambda x: True, 
                        policy_order=None, 
                        env_name=None,
-                       transitions=False):
+                       transitions=False,
+                       test_id=0):
     # 1. Caricamento del DataFrame
     control_df = pd.read_csv(csv_path)
     data = {}
@@ -474,7 +475,7 @@ def load_test_from_csv(csv_path,
         else:
             control_row = control_df.query(f"policy_name == '{p_name}'")
             
-        specific_test_name = control_row['test_name'].values[0]
+        specific_test_name = control_row['test_name'].values[test_id]
         json_path = csv_path.rsplit('/', 1)[0] + '/' + specific_test_name + '_info.json'
         with open(json_path, 'r') as f:
             specific_test_data = json.load(f)
