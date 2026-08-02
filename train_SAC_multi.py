@@ -456,9 +456,10 @@ def train(args, agent_config, obstacles_config, other_config):
     print("Closing environment")
     env.close()
     
-    wandb.log({'best_reward': best_reward, 'best_success': best_success}, step=global_step)              
-    print("Closing wandb run")
-    wandb.finish()
+    if args.wandb:
+        wandb.log({'best_reward': best_reward, 'best_success': best_success}, step=global_step)
+        print("Closing wandb run")
+        wandb.finish()
 
     # save trained networks, actor and critics
     save_models(actor, qf_ensemble, qf_ensemble_target, save_path, suffix='_final')

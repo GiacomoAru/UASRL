@@ -42,7 +42,7 @@ obstacles_config_path:
 #   - "./cf/obstacles_ood3.yaml"
 #  - 
 
-build_path: "./unity_build/1xlimotestcw_1502_wind/UASRL.exe"
+build_path: "./unity_build/1xlimotest_1502_wind/UASRL.exe"
 
 # build_path: "./unity_build/1xlimotest_1502_wind/UASRL.exe"
 agent_config_path: "./cf/agent_debug_sfg.yaml"

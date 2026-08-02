@@ -46,7 +46,7 @@ class EarlyStopping:
     def __init__(self, patience=5, save_path=None):
         self.patience = patience
         self.counter = 0
-        self.best_loss = np.Inf
+        self.best_loss = np.inf
         self.early_stop = False
         self.save_path = save_path
         
@@ -76,7 +76,8 @@ def load_and_split_data(raw_data,
                         INPUT_STACK,
                         STATE_SIZE, 
                         DEVICE,
-                        shuffle=False):
+                        shuffle=False,
+                        explicit_transition=True):
     print(">>> Caricamento e Processamento Dati (Vettorializzato)...")
     
     # 1. SPLIT EPISODI
@@ -164,9 +165,15 @@ def load_and_split_data(raw_data,
         return X_final, y_tensor
 
     # Eseguiamo il processamento
-    X_train, y_train = process_dataset_subset(train_episodes, "Train")
-    X_val, y_val = process_dataset_subset(val_episodes, "Validation")
-    X_test, y_test = process_dataset_subset(test_episodes, "Test")
+    X_train, y_train = process_dataset_subset(
+        train_episodes, "Train", explicit_transition=explicit_transition
+    )
+    X_val, y_val = process_dataset_subset(
+        val_episodes, "Validation", explicit_transition=explicit_transition
+    )
+    X_test, y_test = process_dataset_subset(
+        test_episodes, "Test", explicit_transition=explicit_transition
+    )
 
     input_dim = X_train.shape[1] if len(X_train) > 0 else 0
     output_dim = y_train.shape[1] if len(y_train) > 0 else 0

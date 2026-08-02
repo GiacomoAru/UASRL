@@ -197,6 +197,6 @@ def update_folder_recursively(
 
     return updated
 
-# ---------------- Esempio ----------------
-updated = update_folder_recursively("./test_ad", "./test_ad")
-print("Aggiornati:", [str(p) for p in updated])
+if __name__ == "__main__":
+    updated = update_folder_recursively("./test_ad", "./test_ad")
+    print("Aggiornati:", [str(p) for p in updated])

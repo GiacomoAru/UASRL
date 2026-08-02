@@ -62,7 +62,10 @@ def load_models(actor=None,
                 break  # Interrompe il ciclo una volta trovato il file
                 
         if not loaded:
-            print(f"⚠️ [WARNING] No weights found in {save_path} for actor or agent.")
+            attempted_paths = [os.path.join(save_path, name) for name in files_to_try]
+            raise FileNotFoundError(
+                "No actor weights found. Tried: " + ", ".join(attempted_paths)
+            )
 
     # ===== Q ensemble =====
     if qf_ensemble is not None:
@@ -163,6 +166,8 @@ def cbf_velocity_filter_qp(
     d_safe: float = 0.5,
     alpha: float = 5.0,
     d_safe_threshold_mult: float = 3.0,
+    max_movement_speed: float | None = None,
+    max_turn_speed: float | None = None,
     debug: bool = False
 ) -> tuple[float, float]:
     """
@@ -201,9 +206,31 @@ def cbf_velocity_filter_qp(
         and angular velocities that satisfy the CBF constraints.
     """
 
-    # Robot assumed at origin in its local frame
-    robot_state = np.array([0.0, 0.0, 0.0])  
-    nominal_u = np.array([v_cmd, omega_cmd])
+    ray_distances = np.asarray(ray_distances, dtype=np.float64).reshape(-1)
+    ray_angles = np.asarray(ray_angles, dtype=np.float64).reshape(-1)
+
+    if ray_distances.shape != ray_angles.shape:
+        raise ValueError(
+            "ray_distances and ray_angles must contain the same number of elements"
+        )
+    if not np.all(np.isfinite(ray_distances)) or not np.all(np.isfinite(ray_angles)):
+        raise ValueError("ray distances and angles must be finite")
+    if d_safe <= 0 or alpha <= 0 or d_safe_threshold_mult <= 0:
+        raise ValueError("d_safe, alpha and d_safe_threshold_mult must be positive")
+    if max_movement_speed is not None and max_movement_speed <= 0:
+        raise ValueError("max_movement_speed must be positive")
+    if max_turn_speed is not None and max_turn_speed <= 0:
+        raise ValueError("max_turn_speed must be positive")
+
+    max_v = np.inf if max_movement_speed is None else float(max_movement_speed)
+    max_omega = np.inf if max_turn_speed is None else float(max_turn_speed)
+    nominal_u = np.array([
+        np.clip(float(v_cmd), 0.0, max_v),
+        np.clip(float(omega_cmd), -max_omega, max_omega),
+    ])
+
+    # Robot assumed at the origin of its local frame.
+    robot_state = np.array([0.0, 0.0, 0.0])
     
     # Convert lidar polar coordinates to Cartesian
     obstacles = np.column_stack((
@@ -224,50 +251,49 @@ def cbf_velocity_filter_qp(
 
         # Barrier function h = distance^2 - d_safe^2
         h = dist**2 - d_safe**2
-        x, y, theta = robot_state
-        v_nom, omega_nom = nominal_u
+        _, _, theta = robot_state
 
         # Derivatives of h wrt control inputs
         dh_dv = 2 * (delta[0] * np.cos(theta) + delta[1] * np.sin(theta))
         dh_domega = 2 * (delta[0] * -np.sin(theta) + delta[1] * np.cos(theta))
 
-        # Inequality constraint
+        # Standard CBF inequality in absolute controls:
+        #     dh/du * u + alpha*h >= 0
+        # <=> -dh/du * u <= alpha*h
         a_i = -np.array([dh_dv, dh_domega])
-        b_i = alpha * h + 2 * (
-            delta[0] * v_nom * np.cos(theta)
-            + delta[1] * v_nom * np.sin(theta)
-            + np.dot(delta, [-np.sin(theta), np.cos(theta)]) * omega_nom
-        )
+        b_i = alpha * h
 
         A_list.append(a_i)
         b_list.append(b_i)
 
     # If no relevant constraints, return original commands
     if not A_list:
-        return v_cmd, omega_cmd
+        return float(nominal_u[0]), float(nominal_u[1])
 
     # Build QP matrices
     A = sp.csc_matrix(np.vstack(A_list))
     l = -np.inf * np.ones_like(b_list)
     u = np.array(b_list)
 
-    # Add constraint: v >= 0 (no backward motion)
-    A_vel = sp.csc_matrix([[1.0, 0.0]])
-    l_vel = np.array([0.0])
-    u_vel = np.array([np.inf])
+    # Physical limits are constraints on the final controls, not on a
+    # correction delta. The previous implementation constrained delta_v >= 0,
+    # which made every required deceleration infeasible.
+    A_controls = sp.csc_matrix(np.eye(2))
+    l_controls = np.array([0.0, -max_omega])
+    u_controls = np.array([max_v, max_omega])
 
     # Stack together
-    A_full = sp.vstack([A, A_vel])
-    l_full = np.hstack([l, l_vel])
-    u_full = np.hstack([u, u_vel])
+    A_full = sp.vstack([A, A_controls], format="csc")
+    l_full = np.hstack([l, l_controls])
+    u_full = np.hstack([u, u_controls])
 
-    # Quadratic cost: minimize deviation from nominal command
+    # Quadratic cost: minimize ||u - u_nominal||^2.
     P = sp.csc_matrix(np.eye(2) * 2.0)
-    q = np.zeros(2)
+    q = -2.0 * nominal_u
 
     # Solve QP
     prob = osqp.OSQP()
-    prob.setup(P=P, q=q, A=A_full, l=l_full, u=u_full, verbose=debug, polish=True)
+    prob.setup(P=P, q=q, A=A_full, l=l_full, u=u_full, verbose=debug, polishing=True)
 
     if debug:
         res = prob.solve()
@@ -275,13 +301,13 @@ def cbf_velocity_filter_qp(
         with suppress_osqp_output():
             res = prob.solve()
 
-    if res.info.status != 'solved':
+    if not res.info.status.lower().startswith('solved'):
         if debug:
             print("OSQP failed:", res.info.status)
-        return 0.0, omega_cmd
+        return 0.0, float(nominal_u[1])
 
-    dv, domega = res.x
-    return v_cmd + dv, omega_cmd + domega
+    v_safe, omega_safe = res.x
+    return float(v_safe), float(omega_safe)
 
 def CBF_from_obs(ray_obs, action,
                  
@@ -293,12 +319,21 @@ def CBF_from_obs(ray_obs, action,
                  
                  precomputed_angles_rad):
  
-    # Convert normalized ray observations into distances
-    ray_distances = [x * ray_original_lenght for x in ray_obs]
+    if ray_original_lenght <= 0 or max_movement_speed <= 0 or max_turn_speed <= 0:
+        raise ValueError("ray length and movement limits must be positive")
+
+    ray_obs = np.asarray(ray_obs, dtype=np.float64).reshape(-1)
+    action = np.asarray(action, dtype=np.float64).reshape(-1)
+    if action.size != 2:
+        raise ValueError("action must contain forward and angular commands")
+
+    # ML-Agents ray hit fractions are normalized in [0, 1].
+    ray_distances = np.clip(ray_obs, 0.0, 1.0) * ray_original_lenght
 
     # Policy network outputs are normalized velocities (not accelerations)
     nn_v_front = max(0.0, action[0] * max_movement_speed) # the controller chop away negative values
     nn_v_ang = np.radians(action[1] * max_turn_speed)
+    max_turn_speed_rad = np.radians(max_turn_speed)
 
     # Apply Control Barrier Function via QP filter
     v_safe, omega_safe = cbf_velocity_filter_qp(
@@ -310,12 +345,14 @@ def CBF_from_obs(ray_obs, action,
         d_safe=d_safe,
         alpha=alpha,
         d_safe_threshold_mult=d_safe_mul,
+        max_movement_speed=max_movement_speed,
+        max_turn_speed=max_turn_speed_rad,
         debug=False
     )
 
     # Normalize outputs back to [-1, 1] (compatible with policy space)
-    v_safe_norm = v_safe / max_movement_speed
-    omega_safe_norm = np.degrees(omega_safe) / max_turn_speed
+    v_safe_norm = np.clip(v_safe / max_movement_speed, 0.0, 1.0)
+    omega_safe_norm = np.clip(np.degrees(omega_safe) / max_turn_speed, -1.0, 1.0)
 
     return np.array([v_safe_norm, omega_safe_norm])
 
@@ -419,7 +456,7 @@ def ecbf_velocity_filter_qp(
 
     # Risoluzione
     prob = osqp.OSQP()
-    prob.setup(P=P, q=q, A=A_full, l=l_full, u=u_full, verbose=debug, polish=True)
+    prob.setup(P=P, q=q, A=A_full, l=l_full, u=u_full, verbose=debug, polishing=True)
     
     res = prob.solve()
 
@@ -502,7 +539,3 @@ def save_stats_to_csv(info_dict, stats_dict, filepath):
         
         # Scrivi la riga
         writer.writerow(row)
-        
-        
-
-   

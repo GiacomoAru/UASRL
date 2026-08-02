@@ -471,8 +471,9 @@ class LagPPORolloutBuffer:
         mem['costs'].append(cost)
         mem['dones'].append(done)
         mem['values'].append(value.item())
-        # Nota: usiamo il plurale cost_values per coerenza interna
-        mem['cost_values'].append(cost_value) 
+        # Salviamo un numero CPU come per il value critic, evitando tensori CUDA
+        # annidati che torch.tensor(list) non converte in modo affidabile.
+        mem['cost_values'].append(cost_value.item() if torch.is_tensor(cost_value) else float(cost_value))
         
         self.total_steps += 1
 
@@ -1061,10 +1062,15 @@ def update_stats_from_message(all, success, failure, msg, smoothing):
         else:
             stats['ep_count'] = 1
     
-    if 'id' in msg:
-        del msg['id']      
-    msg['path_lenght_ratio'] = msg['distance_traveled'] / msg['path_length']
-    msg['SPL'] = msg['success'] * (msg['path_length']/max(msg['path_length'], msg['distance_traveled']))
+    # Non modificare in-place il messaggio, che può avere altri consumer.
+    msg = msg.copy()
+    msg.pop('id', None)
+
+    path_length = msg['path_length']
+    distance_traveled = msg['distance_traveled']
+    msg['path_lenght_ratio'] = distance_traveled / path_length if path_length else 0.0
+    spl_denominator = max(path_length, distance_traveled)
+    msg['SPL'] = msg['success'] * (path_length / spl_denominator if spl_denominator else 0.0)
     
     update_stats_helper(all, msg, smoothing)
     if msg['success'] == 1:

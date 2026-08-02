@@ -99,6 +99,10 @@ def compute_uf_cbf_activation_for_dataset(
     raycast_size=21,
     state_size=7,
     stack_number=4,
+    ray_original_length=3.0,
+    ray_max_degrees=90.0,
+    max_movement_speed=1.0,
+    max_turn_speed=92.0,
     actor_std=0.95,
     ue_action_type="sample",
     cbf_enabled=True,
@@ -183,7 +187,9 @@ def compute_uf_cbf_activation_for_dataset(
 
     angles_rad = None
     if cbf_enabled:
-        angles_rad = generate_angles_rad(10, 90)
+        if raycast_size <= 0 or raycast_size % 2 == 0:
+            raise ValueError("raycast_size must be a positive odd number")
+        angles_rad = generate_angles_rad((raycast_size - 1) // 2, ray_max_degrees)
 
     all_policy_actions = np.zeros((total_transitions, 2), dtype=np.float32)
     all_uf_activation = np.zeros(total_transitions, dtype=np.int32)
@@ -256,9 +262,9 @@ def compute_uf_cbf_activation_for_dataset(
             cbf_action = CBF_from_obs(
                 last_raycast_obs,
                 policy_action,
-                3,
-                1,
-                90,
+                ray_original_length,
+                max_movement_speed,
+                max_turn_speed,
                 d_safe,
                 alpha,
                 d_safe_mul,
@@ -379,6 +385,13 @@ def load_test_from_csv(csv_path,
  
 
 args = parse_args()
+
+if args.batch_size <= 0:
+    raise ValueError("--batch-size must be greater than zero")
+if args.max_episodes_k is not None and args.max_episodes_k < 0:
+    raise ValueError("--max-episodes-k must be non-negative")
+if args.save_every <= 0:
+    raise ValueError("--save-every must be greater than zero")
  
 # SAC, SACP, PPO, PPOP
 OOD_1 = ['OOD_UECBF_TH090_2', 'OOD_UECBF_TH090_2', 'UECBF_TH080_PPO', 'UECBF_TH080_PPO'] # d_safe 0.25
@@ -416,79 +429,49 @@ p_names_2 = [
  ]
 
     
-sac_actor = OldDenseActor(
-    28*4,
-    2,
-    -1.0,
-    1.0,
-    [256, 256, 256]
-).to(DEVICE)
-load_models(sac_actor, save_path='./models/' + 'NEW_TR_SIMPLE_EASY_5804798', suffix='_best', DEVICE=DEVICE)
-sac_ue = load_trained_ensemble('./UE/' + 'unc_' + 'NEW_TR_SIMPLE_EASY_5804798', (21 + 7)*4 + 2, (21 + 7), DEVICE)[0]
-sac_ue_norm = torch.load('./UE/' + 'unc_' + 'NEW_TR_SIMPLE_EASY_5804798' + '/norm.pth', map_location=DEVICE)
+def load_policy_components(policy_name, actor_kind):
+    if actor_kind == "ppo":
+        actor = PPOAgent(28 * 4, 2, -1.0, 1.0, 256).to(DEVICE)
+    else:
+        actor = OldDenseActor(28 * 4, 2, -1.0, 1.0, [256, 256, 256]).to(DEVICE)
 
-sacp_actor = OldDenseActor(
-    28*4,
-    2,
-    -1.0,
-    1.0,
-    [256, 256, 256]
-).to(DEVICE)
-load_models(sacp_actor, save_path='./models/' + 'NEW_TR_SIMPLEWP_EASY_5841772', suffix='_best', DEVICE=DEVICE)
-sacp_ue = load_trained_ensemble('./UE/' + 'unc_' + 'NEW_TR_SIMPLEWP_EASY_5841772', (21 + 7)*4 + 2, (21 + 7), DEVICE)[0]
-sacp_ue_norm = torch.load('./UE/' + 'unc_' + 'NEW_TR_SIMPLEWP_EASY_5841772' + '/norm.pth', map_location=DEVICE)
+    load_models(
+        actor,
+        save_path='./models/' + policy_name,
+        suffix='_best',
+        DEVICE=DEVICE,
+    )
 
-ppo_actor = PPOAgent(
-    28*4,
-    2,
-    -1.0,
-    1.0,
-    256
-).to(DEVICE)
-load_models(ppo_actor, save_path='./models/' + 'PPO_RETRAIN_7154081', suffix='_best', DEVICE=DEVICE)
-ppo_ue = load_trained_ensemble('./UE/' + 'unc_' + 'PPO_RETRAIN_7154081', (21 + 7)*4 + 2, (21 + 7), DEVICE)[0]
-ppo_ue_norm = torch.load('./UE/' + 'unc_' + 'PPO_RETRAIN_7154081' + '/norm.pth', map_location=DEVICE)
-
-
-ppop_actor = PPOAgent(
-    28*4,
-    2,
-    -1.0,
-    1.0,
-    256
-    ).to(DEVICE)
-load_models(ppop_actor, save_path='./models/' + 'PPOWP_7167668', suffix='_best', DEVICE=DEVICE)
-ppop_ue = load_trained_ensemble('./UE/' + 'unc_' + 'PPOWP_7167668', (21 + 7)*4 + 2, (21 + 7), DEVICE)[0]
-ppop_ue_norm = torch.load('./UE/' + 'unc_' + 'PPOWP_7167668' + '/norm.pth', map_location=DEVICE)
+    ensemble_path = './UE/unc_' + policy_name
+    ue = load_trained_ensemble(
+        ensemble_path,
+        (21 + 7) * 4 + 2,
+        21 + 7,
+        DEVICE,
+    )[0]
+    ue_norm = torch.load(ensemble_path + '/norm.pth', map_location=DEVICE)
+    return actor, ue, ue_norm
 
 
 policy_configs = {
     "sac": {
         "policy_name": "NEW_TR_SIMPLE_EASY_5804798",
-        "actor": sac_actor,
-        "ue": sac_ue,
-        "ue_norm": sac_ue_norm,
+        "actor_kind": "sac",
         "macro_idx": 0,
     },
     "sacp": {
         "policy_name": "NEW_TR_SIMPLEWP_EASY_5841772",
-        "actor": sacp_actor,
-        "ue": sacp_ue,
-        "ue_norm": sacp_ue_norm,
+        "actor_kind": "sac",
         "macro_idx": 1,
     },
     "ppo": {
         "policy_name": "PPO_RETRAIN_7154081",
-        "actor": ppo_actor,
-        "ue": ppo_ue,
-        "ue_norm": ppo_ue_norm,
+        "actor_kind": "ppo",
         "macro_idx": 2,
     },
     "ppop": {
         "policy_name": "PPOWP_7167668",
-        "actor": ppop_actor,
-        "ue": ppop_ue,
-        "ue_norm": ppop_ue_norm,
+        "actor_kind": "ppo",
         "macro_idx": 3,
     },
 }
@@ -500,8 +483,15 @@ if args.policy == "all":
 else:
     selected_policies = [args.policy]
 
+for policy_key in selected_policies:
+    cfg = policy_configs[policy_key]
+    cfg["actor"], cfg["ue"], cfg["ue_norm"] = load_policy_components(
+        cfg["policy_name"], cfg["actor_kind"]
+    )
+
 
 stats = {}
+completed_policies = 0
 
 for macro_test, filtering, env_name, label, q in zip(
     t,
@@ -545,7 +535,11 @@ for macro_test, filtering, env_name, label, q in zip(
 
         del policy_data, policy_transitions
 
-        if DEVICE == "cuda":
+        completed_policies += 1
+        if completed_policies % args.save_every == 0:
+            save_stats_checkpoint(stats, args.output)
+
+        if DEVICE.startswith("cuda"):
             torch.cuda.empty_cache()
 
 

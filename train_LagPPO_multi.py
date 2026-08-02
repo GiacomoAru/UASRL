@@ -20,7 +20,6 @@ from mlagents_envs.side_channel.environment_parameters_channel import Environmen
 from gymnasium import spaces 
 
 # Assumo che training_utils contenga le tue funzioni helper
-from train_PPO_multi import train_ppo
 from training_utils import *
 
 
@@ -153,7 +152,7 @@ def train_lagppo(args, agent_config, obstacles_config, other_config):
                     
                     if torch.isnan(obs_tensor).any() or torch.isinf(obs_tensor).any():
                         print(f"⚠️ [WARNING] NaN/Inf detected for Agent {id}")
-                        obs_tensor = torch.nan_to_num(obs_tensor, nan=0.0)
+                        obs_tensor = torch.nan_to_num(obs_tensor, nan=0.0, posinf=1.0, neginf=-1.0)
                         
                     raw_action, scaled_action, logprob, _, value = agent.get_action_and_value(obs_tensor)
                     cost_val_est = agent.get_cost_value(obs_tensor) # Stima costo corrente
@@ -233,7 +232,7 @@ def train_lagppo(args, agent_config, obstacles_config, other_config):
                     for id in obs:
                         agent_obs = obs[id]
                         obs_tensor = torch.from_numpy(agent_obs[0]).float().unsqueeze(0).to(DEVICE)
-                        obs_tensor = torch.nan_to_num(obs_tensor, nan=0.0)
+                        obs_tensor = torch.nan_to_num(obs_tensor, nan=0.0, posinf=1.0, neginf=-1.0)
                         
                         last_values[id] = agent.get_value(obs_tensor).item()
                         last_costs[id] = agent.get_cost_value(obs_tensor).item()

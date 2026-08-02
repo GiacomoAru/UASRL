@@ -50,20 +50,26 @@ def test(env,
     apply_unity_settings(param_channel, agent_config, 'ag_')
     apply_unity_settings(param_channel, obstacles_config, 'obs_')
 
-    print('Resetting environment...')
-    env.reset()
     env_info.clear_queue()
-    
+
     print('Sending initial episode seeds...')
     for i in range(args.episode_queue_length):
         env_info.send_episode_seed(i + args.seed) # semplice seeding per ogni episodio
     seed_sent = args.episode_queue_length
+    replacement_seeds_sent = 0
+
+    # Side-channel messages queued before reset are delivered with the reset
+    # command, so the first evaluated episodes use the requested seeds too.
+    print('Resetting environment...')
+    env.reset()
 
     if args.uf:
         idc_unc_percentile = int(torch.argmin(torch.abs(unc_enamble_norm_stats['percentile_levels'] - args.ut)))
         print(f"Using {unc_enamble_norm_stats['percentile_levels'][idc_unc_percentile]} Percentile for Uncertainty")
         print(f"\treal value: {unc_enamble_norm_stats['epistemic']['percentiles'][idc_unc_percentile]}")
-        percentile_real_value = unc_enamble_norm_stats['epistemic']['percentiles'][idc_unc_percentile]
+        percentile_real_value = float(
+            unc_enamble_norm_stats['epistemic']['percentiles'][idc_unc_percentile]
+        )
     else:
         percentile_real_value = 0.0
         
@@ -81,7 +87,10 @@ def test(env,
     cumulative_obs = {}          # per-agent memory (obs, action, uncertainty info)
     running_episodes = {}        # active episodes data
     terminated_episodes = []    # finished episodes
-    angoli_radianti_precalcolati = generate_angles_rad(10, 90)
+    ray_max_degrees = other_config.get('raycast_max_degrees', 90)
+    angoli_radianti_precalcolati = generate_angles_rad(
+        other_config['rays_per_direction'], ray_max_degrees
+    )
     
     episodic_stats = {}
     dataset = []                 # collected dataset
@@ -192,9 +201,9 @@ def test(env,
                         actual_obs[RAYCAST_SIZE*(STACK_NUMBER - 1):RAYCAST_SIZE*STACK_NUMBER], 
                         policy_action,
                         
-                        3,
-                        1,
-                        90,
+                        other_config['raycast_length'],
+                        agent_config['max_movement_speed'],
+                        agent_config['max_turn_speed'],
                         
                         args.d_safe,
                         args.alpha,
@@ -268,6 +277,12 @@ def test(env,
             if t_episode == []:
                 print(current_episode, '- agent killed too early, step', msg['length'])
                 print(msg)
+
+                # L'episodio non viene contato nelle metriche: rimpiazza il seed
+                # scartato senza sottrarre uno dei seed originali 0..N-1.
+                replacement_seed = args.seed + args.total_episodes + replacement_seeds_sent
+                env_info.send_episode_seed(replacement_seed)
+                replacement_seeds_sent += 1
             else:
                 update_stats_from_message_rm(episodic_stats, None, None, msg)        
                 if current_episode % args.metrics_log_interval == 0:
@@ -304,7 +319,7 @@ def test(env,
     
     for key in testing_stats:
         testing_stats[key] = testing_stats[key].mean
-    testing_stats["ep_count"] = len(dataset)
+    testing_stats["ep_count"] = current_episode - 1
     
     return testing_stats, episodic_stats, dataset
 

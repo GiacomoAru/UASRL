@@ -14,26 +14,25 @@ def filter_and_enance_data(ep_list, filtering_function=lambda x: True, transitio
     filtered_t_list = []
     for i, ep in enumerate(ep_list):
         if filtering_function(ep):
-            if ep['length'] == 1999:
-                ep['success'] = 0
-            if ep['length'] == 0:
-                ep['success'] = 0
-                  
             # Calcolo metriche aggiuntive
             ep_ext = ep.copy()
-            ep_ext['velocity'] = ep['distance_traveled'] / ep['length'] if ep['length'] > 0 else 0
+            if ep_ext['length'] in (0, 1999):
+                ep_ext['success'] = 0
+
+            ep_ext['velocity'] = ep_ext['distance_traveled'] / ep_ext['length'] if ep_ext['length'] > 0 else 0
             
-            ep_ext['weighted_success'] = ep['success'] * ep['path_tortuosity']
-            ep_ext['SPL'] = ep['success'] * (ep['path_length'] / max(ep['distance_traveled'], ep['path_length']))
-            ep_ext['SPL2'] = ep['success'] * (ep['path_length'] / ep['distance_traveled']) if ep['distance_traveled'] > 0 else 0
+            ep_ext['weighted_success'] = ep_ext['success'] * ep_ext['path_tortuosity']
+            spl_denominator = max(ep_ext['distance_traveled'], ep_ext['path_length'])
+            ep_ext['SPL'] = ep_ext['success'] * (ep_ext['path_length'] / spl_denominator) if spl_denominator > 0 else 0
+            ep_ext['SPL2'] = ep_ext['success'] * (ep_ext['path_length'] / ep_ext['distance_traveled']) if ep_ext['distance_traveled'] > 0 else 0
             
             
-            ep_ext['success_nc'] = ep['success'] if ep['collisions'] == 0 else 0
-            ep_ext['stuck_rate'] = 1 if ep['success'] == 0 and ep['collisions'] == 0 else 0
-            ep_ext['collision_rate'] = 1 if ep['collisions'] > 0 else 0
+            ep_ext['success_nc'] = ep_ext['success'] if ep_ext['collisions'] == 0 else 0
+            ep_ext['stuck_rate'] = 1 if ep_ext['success'] == 0 and ep_ext['collisions'] == 0 else 0
+            ep_ext['collision_rate'] = 1 if ep_ext['collisions'] > 0 else 0
             
-            ep_ext['vel_success'] = ep_ext['velocity'] if ep['success'] == 1 else None
-            ep_ext['length_success'] = ep['length'] if ep['success'] == 1 else None
+            ep_ext['vel_success'] = ep_ext['velocity'] if ep_ext['success'] == 1 else None
+            ep_ext['length_success'] = ep_ext['length'] if ep_ext['success'] == 1 else None
             
             filtered_ep_list.append(ep_ext)
             if transitions is not None:
