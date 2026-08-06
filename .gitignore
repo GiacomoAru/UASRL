@@ -15,6 +15,7 @@ unc_models_distrib/
 unc_models_sample/
 training_curve/
 heatmap/
+paper_e_review/
 
 # User-specific files
 *.rsuser
