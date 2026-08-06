@@ -1123,10 +1123,14 @@ def update_stats_from_message(all, success, failure, msg, smoothing):
         
         if stats == {}:
             for key in msg:
+                if isinstance(msg[key], (list, dict)):
+                    continue
                 stats[key] = msg[key]
         else:
             for key in msg:
-                stats[key] = stats[key]*smoothing + (1 - smoothing)*msg[key]  
+                if isinstance(msg[key], (list, dict)):
+                    continue
+                stats[key] = stats[key]*smoothing + (1 - smoothing)*msg[key]
 
         if 'ep_count' in stats:
             stats['ep_count'] += 1
@@ -1155,10 +1159,15 @@ def update_stats_from_message_rm(all_stats, success_stats, failure_stats, msg):
             return
 
         for key, value in msg.items():
+            # Campi come collision_events sono liste di eventi, non metriche
+            # scalari: non c'è una media da tenere, li saltiamo qui.
+            if isinstance(value, (list, dict)):
+                continue
+
             # inizializza RunningMean se non esiste
             if key not in stats:
                 stats[key] = RunningMean()
-            
+
             # aggiorna la media
             stats[key].update(value)
 

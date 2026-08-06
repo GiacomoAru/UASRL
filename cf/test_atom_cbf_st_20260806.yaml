@@ -38,11 +38,11 @@ worker_id: 0
 decision_frame_period: 5
 send_debug_action: false
 
-# CODEX_HANDOFF.md / REBUTTAL_CHECKLIST.md state 250 episodes per condition
-# for the static protocol. TBD whether that count is meant per sub-scene
-# (angolo/curva) or as the single raw run total before splitting - flagged
-# in the handoff note, confirm before the full run.
-total_episodes: 250
+# CODEX_HANDOFF.md / REBUTTAL_CHECKLIST.md's 250 static episodes are per
+# sub-scene (angolo/curva), and the static build carries both in one run
+# (split later via global_avg_dist_obstacle, as in data_analysis_2.ipynb).
+# So the raw run here must be 500, then filtered/split like the notebooks.
+total_episodes: 500
 episode_queue_length: 18
 accumulate_data: true
 
