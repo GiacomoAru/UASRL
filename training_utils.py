@@ -573,15 +573,19 @@ class CustomChannel(SideChannel):
     END_EPISODE_TOKEN = "02"
     DATA_TOKEN = "03"
     DEBUG_TOKEN = "04"
+    COLLISION_EVENT_TOKEN = "05"
     SEPARATOR_TOKEN = '|'
 
-    def __init__(self) -> None:
+    def __init__(self, capture_collision_steps: bool = False) -> None:
         # UUID deve corrispondere a quello nello script C#
         super().__init__(uuid.UUID("621f0a70-4f87-11ea-a6bf-784f4387d1f7"))
         
         # Code per i messaggi in arrivo da Unity (se Unity invia conferme o dati)
         self.start_msg_queue = []
         self.stop_msg_queue = []
+        self._collision_events = {}
+        self.capture_collision_steps = capture_collision_steps
+        self.collision_msg_queue = []
 
     # --- 1. INVIO VERSO UNITY (Python -> C#) ---
 
@@ -662,10 +666,40 @@ class CustomChannel(SideChannel):
                 # Fallback se non è JSON (es. messaggio semplice)
                 self.start_msg_queue.append(content)
                 
+        elif token == self.COLLISION_EVENT_TOKEN:
+            try:
+                data = json.loads(content)
+            except json.JSONDecodeError:
+                return
+
+            if not isinstance(data, dict):
+                return
+
+            try:
+                episode_key = (int(data['id']), int(data['seed']))
+            except (KeyError, TypeError, ValueError):
+                return
+
+            self._collision_events.setdefault(episode_key, []).append(data)
+            if self.capture_collision_steps:
+                self.collision_msg_queue.append(data)
+
         elif token == self.END_EPISODE_TOKEN:
             # Se Unity segnala la fine episodio
             try:
                 data = json.loads(content)
+                if isinstance(data, dict):
+                    try:
+                        episode_key = (int(data['id']), int(data['seed']))
+                    except (KeyError, TypeError, ValueError):
+                        episode_key = None
+
+                    if episode_key is None:
+                        data['collision_events'] = []
+                    else:
+                        data['collision_events'] = self._collision_events.pop(
+                            episode_key, []
+                        )
                 self.stop_msg_queue.append(data)
             except json.JSONDecodeError:
                 self.stop_msg_queue.append(content)
@@ -679,6 +713,43 @@ class CustomChannel(SideChannel):
         """Svuota le code dei messaggi ricevuti."""
         self.start_msg_queue = []
         self.stop_msg_queue = []
+        self._collision_events = {}
+        self.collision_msg_queue = []
+
+
+def attach_collision_events_to_running_transitions(
+    collision_events,
+    observations,
+    running_episodes,
+):
+    """Attach sparse Unity collision events to the physics step that caused them."""
+    internal_to_external = {
+        int(agent_obs[4]): external_id
+        for external_id, agent_obs in observations.items()
+    }
+    pending_events = []
+
+    for event in collision_events:
+        try:
+            external_id = internal_to_external[int(event['id'])]
+        except (KeyError, TypeError, ValueError):
+            pending_events.append(event)
+            continue
+
+        try:
+            transition = running_episodes[external_id][-1]
+            inner_step = transition['inner_steps'][-1]
+        except (KeyError, IndexError):
+            # The episode ended before producing a saved transition.
+            continue
+
+        transition['collision'] = True
+        transition['collision_count'] += 1
+        transition['collision_events'].append(event)
+        inner_step['collision'] = True
+        inner_step['collision_events'].append(event)
+
+    return pending_events
 
 class RunningMean:
     def __init__(self):

@@ -134,6 +134,11 @@ def test(env,
         
 
         obs = collect_data_after_step_id(env, BEHAVIOUR_NAME, STATE_SIZE)
+        env_info.collision_msg_queue = attach_collision_events_to_running_transitions(
+            env_info.collision_msg_queue,
+            obs,
+            running_episodes,
+        )
         
         for id in obs:
             agent_obs = obs[id]
@@ -226,6 +231,9 @@ def test(env,
                         'u_e': cumulative_obs[id][3],
                         'uf_activation': cumulative_obs[id][4],
                         'action': action,
+                        'collision': False,
+                        'collision_count': 0,
+                        'collision_events': [],
                         'inner_steps': []
                     })
 
@@ -260,12 +268,23 @@ def test(env,
                             
                 # Check if CBF activated
                 cbf_activation = args.cbf and np.linalg.norm(cbf_action - policy_action) > 1e-06
-                running_episodes[id][-1]['inner_steps'].append([np.linalg.norm(cbf_action - policy_action), cbf_activation])
-                
                 # Final action selection (UF + CBF logic)
                 final_action = policy_action
                 if cumulative_obs[id][4] and cbf_activation:
                         final_action = cbf_action
+
+                running_episodes[id][-1]['inner_steps'].append({
+                    'inner_step_index': len(running_episodes[id][-1]['inner_steps']),
+                    'policy_action': policy_action.copy(),
+                    'cbf_action': cbf_action.copy(),
+                    'executed_action': final_action.copy(),
+                    'cbf_action_delta': np.linalg.norm(cbf_action - policy_action),
+                    'cbf_activation': cbf_activation,
+                    'uf_activation': cumulative_obs[id][4],
+                    'u_e': cumulative_obs[id][3],
+                    'collision': False,
+                    'collision_events': [],
+                })
                         
                 # Debug visualization (optional)
                 if args.send_debug_action:
@@ -336,10 +355,7 @@ def test(env,
                 # Save data if required
                 # saving all obseravtion + action and episode stats
                 if args.accumulate_data:
-                    dataset.append(([
-                        list(element['obs']) + list(element['action'])
-                        for element in t_episode
-                    ], msg))
+                    dataset.append((t_episode, msg))
             
             del terminated_episodes[int(t_episode_index)]
         env_info.stop_msg_queue = new_stop_msgs
@@ -415,7 +431,7 @@ if type(args.build_path) == str:
 for b_path in args.build_path:
     
     # Create the channel
-    env_info = CustomChannel()
+    env_info = CustomChannel(capture_collision_steps=True)
     param_channel = EnvironmentParametersChannel()
         
     # env setup
@@ -557,15 +573,21 @@ for b_path in args.build_path:
                     d2 = [x[0] for x in dataset]
                     
                     # Recursive helper to convert all numbers into float (JSON safe)
-                    def convert_all_to_float(obj):
-                        if isinstance(obj, dict):
-                            return {k: convert_all_to_float(v) for k, v in obj.items()}
-                        elif isinstance(obj, (list, tuple)):
-                            return [convert_all_to_float(item) for item in obj]
-                        elif isinstance(obj, (np.floating, Decimal)):
-                            return float(obj)
-                        else:
-                            return obj
+                def convert_all_to_float(obj):
+                    if isinstance(obj, dict):
+                        return {k: convert_all_to_float(v) for k, v in obj.items()}
+                    elif isinstance(obj, (list, tuple)):
+                        return [convert_all_to_float(item) for item in obj]
+                    elif isinstance(obj, np.ndarray):
+                        return [convert_all_to_float(item) for item in obj.tolist()]
+                    elif isinstance(obj, (np.floating, Decimal)):
+                        return float(obj)
+                    elif isinstance(obj, np.integer):
+                        return int(obj)
+                    elif isinstance(obj, np.bool_):
+                        return bool(obj)
+                    else:
+                        return obj
                         
                     # Save dataset with timestamp in filename
                     with open(specific_save_filepath + '_info.json', 'w+') as file:

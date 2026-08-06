@@ -1,0 +1,57 @@
+# ATOM-CBF standalone baseline - OOD3 (procedural, "cw" build).
+# Dated/frozen config, created 2026-08-06. Do not overwrite; make a new dated
+# file for any protocol change (see CODEX_HANDOFF.md / REBUTTAL_CHECKLIST.md).
+test_name: "ATOM_CBF_OOD3_20260806"
+machine_name: "personal"
+seed: 78789
+base_time: 1765457030
+
+train_config_path: "./cf/train_SAC.yaml"
+
+# PPO, PPOP and LagPPO are intentionally excluded from this baseline run
+# (author's instruction, 2026-08-06): PPO_RETRAIN_7154081 and PPOWP_7167668
+# are not present in this local workspace anyway (remote machine, per
+# CODEX_HANDOFF.md); LagPPO is skipped on purpose even though its weights
+# are local.
+policy_names:
+  - NEW_TR_SIMPLE_EASY_5804798      # SAC
+  - NEW_TR_SIMPLEWP_EASY_5841772    # SACP
+  - NEW_TR_LAGSACSIMPLE_5832028     # LagSAC
+actor_std: 0.95
+
+obstacles_config_path: "./cf/obstacles_ood3.yaml"
+
+build_path: "./unity_build/1xlimotestcw_0608_wind/UASRL.exe"
+agent_config_path: "./cf/agent_test_sfg.yaml"
+headless: false
+worker_id: 0
+decision_frame_period: 5
+send_debug_action: false
+
+total_episodes: 2000
+episode_queue_length: 18
+accumulate_data: true
+
+# Existing CBF and uncertainty gate stay disabled for this standalone baseline.
+cbf: false
+uf: false
+
+atom_cbf: true
+atom_checkpoint_path: "./models/atom_cbf/atom_cbf_id.pt"
+atom_solver: "CLARABEL"
+
+# Checked against the calibrated checkpoint before rollout (must match
+# models/atom_cbf/atom_cbf_id.pt: d_safe=0.25, d_safe_multiplier=3.0, cbf_gain=1.5).
+d_safe: 0.25
+d_safe_mul: 3.0
+alpha: 1.5
+cbf_min_forward_velocity: 0.05
+
+ut: 0.75
+ue_path: "./unc_models/"
+ue_action_type: "sample"
+
+cuda: 0
+torch_deterministic: true
+metrics_log_interval: 50
+save_path: "./results/"

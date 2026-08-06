@@ -142,7 +142,7 @@ def compute_uf_cbf_activation_for_dataset(
 
         for transition in episode[4:]:
             obs = np.asarray(
-                transition[:obs_size],
+                saved_transition_values(transition)[:obs_size],
                 dtype=np.float32,
             )
             episode_obs.append(obs)

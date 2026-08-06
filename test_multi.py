@@ -20,6 +20,7 @@ from stable_baselines3.common.buffers import ReplayBuffer
 from training_utils import *
 from testing_utils import *
 from uncertainty_utils import *
+from atom_cbf import ATOMCBFController
 
 # [markdown]
 #  Testing Function
@@ -36,6 +37,7 @@ def test(env,
          actor,
          unc_ensamble,
          unc_enamble_norm_stats,
+         atom_controller,
          
          BEHAVIOUR_NAME,
          STATE_SIZE,
@@ -78,6 +80,13 @@ def test(env,
     
     testing_stats = {
         "cbf_time": RunningMean(),
+        "atom_cbf_time": RunningMean(),
+        "atom_cbf_activation": RunningMean(),
+        "atom_cbf_uncertainty": RunningMean(),
+        "atom_cbf_epsilon": RunningMean(),
+        "atom_cbf_slack": RunningMean(),
+        "atom_cbf_solver_failure": RunningMean(),
+        "atom_cbf_emergency": RunningMean(),
         "uf_time": RunningMean(),
         "policy_time": RunningMean(),
         "unity_time": RunningMean(),
@@ -99,6 +108,11 @@ def test(env,
         
 
         obs = collect_data_after_step_id(env, BEHAVIOUR_NAME, STATE_SIZE)
+        env_info.collision_msg_queue = attach_collision_events_to_running_transitions(
+            env_info.collision_msg_queue,
+            obs,
+            running_episodes,
+        )
         
         for id in obs:
             agent_obs = obs[id]
@@ -187,6 +201,9 @@ def test(env,
                         'u_e': cumulative_obs[id][3],
                         'uf_activation': cumulative_obs[id][4],
                         'action': action,
+                        'collision': False,
+                        'collision_count': 0,
+                        'collision_events': [],
                         'inner_steps': []
                     })
 
@@ -195,7 +212,35 @@ def test(env,
 
                 # Control Barrier Function (CBF) correction
                 cbf_action = np.zeros(2)
-                if args.cbf:
+                atom_info = None
+                if args.atom_cbf:
+                    prev_time = time.time()
+                    atom_result = atom_controller.filter(
+                        actual_obs[
+                            RAYCAST_SIZE*(STACK_NUMBER - 1):RAYCAST_SIZE*STACK_NUMBER
+                        ],
+                        policy_action,
+                    )
+                    cbf_action = atom_result.action
+                    atom_info = atom_result.info
+                    testing_stats['atom_cbf_time'].update(time.time() - prev_time)
+                    testing_stats['atom_cbf_activation'].update(
+                        float(atom_info['activated'])
+                    )
+                    testing_stats['atom_cbf_uncertainty'].update(
+                        atom_info['uncertainty']
+                    )
+                    testing_stats['atom_cbf_epsilon'].update(
+                        atom_info['epsilon_adapt']
+                    )
+                    testing_stats['atom_cbf_slack'].update(atom_info['slack'])
+                    testing_stats['atom_cbf_solver_failure'].update(
+                        float(atom_info['status'] == 'solver_failure')
+                    )
+                    testing_stats['atom_cbf_emergency'].update(
+                        float(atom_info['status'] == 'emergency_inside_margin')
+                    )
+                elif args.cbf:
                     prev_time = time.time()
                     cbf_action = CBF_from_obs(
                         actual_obs[RAYCAST_SIZE*(STACK_NUMBER - 1):RAYCAST_SIZE*STACK_NUMBER], 
@@ -220,13 +265,33 @@ def test(env,
                         cbf_action[0] = max(policy_action[0], cbf_action[0])
                             
                 # Check if CBF activated
-                cbf_activation = args.cbf and np.linalg.norm(cbf_action - policy_action) > 1e-06
-                running_episodes[id][-1]['inner_steps'].append([np.linalg.norm(cbf_action - policy_action), cbf_activation])
-                
+                cbf_activation = (
+                    (args.cbf or args.atom_cbf)
+                    and np.linalg.norm(cbf_action - policy_action) > 1e-06
+                )
                 # Final action selection (UF + CBF logic)
                 final_action = policy_action
-                if cumulative_obs[id][4] and cbf_activation:
-                        final_action = cbf_action
+                if args.atom_cbf:
+                    final_action = cbf_action
+                elif cumulative_obs[id][4] and cbf_activation:
+                    final_action = cbf_action
+
+                running_episodes[id][-1]['inner_steps'].append({
+                    'inner_step_index': len(running_episodes[id][-1]['inner_steps']),
+                    'policy_action': policy_action.copy(),
+                    'cbf_action': cbf_action.copy(),
+                    'executed_action': final_action.copy(),
+                    'cbf_action_delta': np.linalg.norm(cbf_action - policy_action),
+                    'cbf_activation': cbf_activation,
+                    'uf_activation': cumulative_obs[id][4],
+                    'u_e': cumulative_obs[id][3],
+                    'safety_filter': 'atom_cbf' if args.atom_cbf else (
+                        'cbf' if args.cbf else 'none'
+                    ),
+                    'atom_cbf': atom_info,
+                    'collision': False,
+                    'collision_events': [],
+                })
                         
                 # Debug visualization (optional)
                 if args.send_debug_action:
@@ -299,10 +364,7 @@ def test(env,
                 # Save data if required
                 # saving all obseravtion + action and episode stats
                 if args.accumulate_data:
-                    dataset.append(([
-                        list(element['obs']) + list(element['action'])
-                        for element in t_episode
-                    ], msg))
+                    dataset.append((t_episode, msg))
             
             del terminated_episodes[int(t_episode_index)]
         env_info.stop_msg_queue = new_stop_msgs
@@ -329,6 +391,18 @@ def test(env,
 
 
 args = parse_args()
+if not hasattr(args, 'atom_cbf'):
+    args.atom_cbf = False
+if not hasattr(args, 'atom_checkpoint_path'):
+    args.atom_checkpoint_path = None
+if not hasattr(args, 'atom_solver'):
+    args.atom_solver = 'CLARABEL'
+if args.atom_cbf and args.cbf:
+    raise ValueError('ATOM-CBF and the existing CBF cannot both control the robot')
+if args.atom_cbf and args.uf:
+    raise ValueError('The standalone ATOM-CBF baseline requires uf=false')
+if args.atom_cbf and not args.atom_checkpoint_path:
+    raise ValueError('atom_checkpoint_path is required when atom_cbf=true')
 train_config = parse_config_file(args.train_config_path)
 other_config = parse_config_file(train_config["other_config_path"])
 agent_config = parse_config_file(args.agent_config_path)
@@ -378,7 +452,7 @@ if type(args.build_path) == str:
 for b_path in args.build_path:
     
     # Create the channel
-    env_info = CustomChannel()
+    env_info = CustomChannel(capture_collision_steps=True)
     param_channel = EnvironmentParametersChannel()
         
     # env setup
@@ -400,6 +474,26 @@ for b_path in args.build_path:
         obstacles_config = parse_config_file(obs_config_path)
         print('obstacles_config:')
         pprint(obstacles_config)
+
+        if args.atom_cbf:
+            print('Loading calibrated ATOM-CBF baseline...')
+            atom_controller = ATOMCBFController.from_checkpoint(
+                args.atom_checkpoint_path,
+                max_movement_speed=agent_config['max_movement_speed'],
+                max_turn_speed_degrees=agent_config['max_turn_speed'],
+                device=DEVICE,
+                expected_ray_length=other_config['raycast_length'],
+                expected_ray_angles=generate_angles_rad(
+                    RAY_PER_DIRECTION,
+                    other_config.get('raycast_max_degrees', 90),
+                ),
+                expected_d_safe=args.d_safe,
+                expected_d_safe_multiplier=args.d_safe_mul,
+                expected_cbf_gain=args.alpha,
+                solver=args.atom_solver,
+            )
+        else:
+            atom_controller = None
         
         if type(args.policy_names) == str:
             args.policy_names = [args.policy_names]
@@ -468,6 +562,7 @@ for b_path in args.build_path:
                     actor, 
                     ue,
                     ue_norm,
+                    atom_controller,
                     
                     BEHAVIOUR_NAME,
                     STATE_SIZE,
@@ -518,8 +613,14 @@ for b_path in args.build_path:
                         return {k: convert_all_to_float(v) for k, v in obj.items()}
                     elif isinstance(obj, (list, tuple)):
                         return [convert_all_to_float(item) for item in obj]
+                    elif isinstance(obj, np.ndarray):
+                        return [convert_all_to_float(item) for item in obj.tolist()]
                     elif isinstance(obj, (np.floating, Decimal)):
                         return float(obj)
+                    elif isinstance(obj, np.integer):
+                        return int(obj)
+                    elif isinstance(obj, np.bool_):
+                        return bool(obj)
                     else:
                         return obj
                     

@@ -12,6 +12,18 @@ from matplotlib.colors import (
     PowerNorm,
 )
 
+
+def saved_transition_values(transition):
+    """Return the numeric observation-action vector from old or rich datasets."""
+    if isinstance(transition, dict):
+        try:
+            return list(transition['obs']) + list(transition['action'])
+        except KeyError as exc:
+            raise ValueError(
+                "Rich transition requires 'obs' and 'action' fields."
+            ) from exc
+    return transition
+
 # --- 1. IL MODELLO ---
 class ProbabilisticNetwork(nn.Module):
     def __init__(self, input_dim, output_dim, hidden_size):
@@ -115,7 +127,9 @@ def load_and_split_data(raw_data,
                 continue
             
             # Trasformiamo l'intero episodio in array numpy
-            obs_arr = np.array(all_observations)
+            obs_arr = np.array(
+                [saved_transition_values(t) for t in all_observations]
+            )
             
             # Input attuali (tutti tranne l'ultimo)
             if explicit_transition:
@@ -270,7 +284,9 @@ def generate_uncertainty_stats(raw_data,
         if len(all_observations) < 2:
             continue
         
-        obs_arr = np.array(all_observations)
+        obs_arr = np.array(
+            [saved_transition_values(t) for t in all_observations]
+        )
         
         # Slicing Input
         if explicit_transition:

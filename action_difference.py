@@ -40,12 +40,25 @@ def mean_successive_action_diff_for_episode(
     """
     actions: List[Tuple[float, float]] = []
     for idx, t in enumerate(episode_transitions):
-        if not isinstance(t, list) or len(t) < 2:
-            raise ValueError(f"Transizione {idx} non valida: attesa lista lunga almeno 2.")
+        if isinstance(t, dict):
+            action = t.get("action")
+            if not isinstance(action, list) or len(action) != 2:
+                raise ValueError(
+                    f"Transizione {idx} non valida: campo action atteso con due valori."
+                )
+            raw_action = action
+        elif isinstance(t, list) and len(t) >= 2:
+            raw_action = t[-2:]
+        else:
+            raise ValueError(
+                f"Transizione {idx} non valida: attesa lista o transizione ricca."
+            )
         try:
-            a = (float(t[-2]), float(t[-1]))
+            a = (float(raw_action[0]), float(raw_action[1]))
         except Exception as e:
-            raise ValueError(f"Transizione {idx}: ultimi 2 valori non convertibili in float: {t[-2:]}") from e
+            raise ValueError(
+                f"Transizione {idx}: azione non convertibile in float: {raw_action}"
+            ) from e
         actions.append(a)
 
     if len(actions) < 2:
