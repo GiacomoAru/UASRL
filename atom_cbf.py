@@ -149,7 +149,19 @@ def calibrate_atom_margin(
     gamma_multiplier: float = 1.0,
     uncertainty_floor: float = 1e-8,
 ) -> dict[str, Any]:
-    """Calibrate the ATOM-CBF component-wise error-to-uncertainty ratio."""
+    """Calibrate the ATOM-CBF component-wise base error ratio (phi_cal).
+
+    Matches Yun & Azizan, ATOM-CBF, Sec. 4.1 exactly: the calibration set is
+    first filtered to `Dfiltered = {(y,x) in Dcal : |Unc(y)-mean| <= gamma}`
+    (Eq. 6, `gamma = gamma_multiplier * std`, paper's own default is
+    `gamma_multiplier=1.0` i.e. one standard deviation), then phi_cal is the
+    per-component worst-case (max) ratio of error to uncertainty over that
+    filtered set (Eq. 7). The paper's only defence against a degenerate
+    near-zero-uncertainty calibration point inflating that max is the gamma
+    filter above -- there is no additional percentile cap or robust floor in
+    the paper, so this doesn't add one either; `uncertainty_floor` is purely
+    a divide-by-zero guard, not a tuning knob.
+    """
 
     predictions = np.asarray(predictions, dtype=np.float64)
     targets = np.asarray(targets, dtype=np.float64)
@@ -338,6 +350,58 @@ class ATOMCBFController:
         self.max_turn_speed = math.radians(float(max_turn_speed_degrees))
         self.slack_penalty = float(slack_penalty)
         self.solver = str(solver)
+        self._build_socp()
+
+    def _build_socp(self) -> None:
+        """Build the SOCP once with cp.Parameter placeholders.
+
+        Rebuilding a fresh cp.Problem from scratch on every filter() call
+        (the original implementation) re-parses and re-compiles the whole
+        symbolic problem each time: ~34ms/call measured, almost entirely
+        parsing overhead for a 2-variable QP that should solve in ~1ms.
+        At 50Hz physics with several agents that alone exceeds the
+        real-time budget. Building the problem once and only updating
+        Parameter values per call is the standard cvxpy pattern for
+        repeated real-time solves and does not change the solved problem.
+        """
+        if cp is None:
+            self._problem = None
+            return
+
+        # cp.installed_solvers() re-scans available solver packages on every
+        # call (~16ms measured) -- it doesn't change during a process's
+        # lifetime, so cache it once instead of calling it per filter().
+        self._installed_solvers = set(cp.installed_solvers())
+
+        self._control = cp.Variable(2)
+        self._slack = cp.Variable(nonneg=True)
+        self._nominal_param = cp.Parameter(2)
+        self._barrier_param = cp.Parameter()
+        self._lg_h_param = cp.Parameter(2)
+        self._epsilon_param = cp.Parameter(nonneg=True)
+
+        fixed_lipschitz = self.lipschitz["L_Lfh"] + self.lipschitz["L_kappah"]
+        robust_margin = self._epsilon_param * (
+            fixed_lipschitz + self.lipschitz["L_Lgh"] * cp.norm(self._control, 2)
+        )
+        constraints = [
+            self._lg_h_param @ self._control - robust_margin
+            >= -self.cbf_gain * self._barrier_param - self._slack,
+            self._control[0] >= 0.0,
+            self._control[0] <= self.max_movement_speed,
+            self._control[1] >= -self.max_turn_speed,
+            self._control[1] <= self.max_turn_speed,
+        ]
+        # Plain ||u - u_nominal||^2, matching the paper's relaxed filter
+        # exactly (Yun & Azizan, ATOM-CBF, Eq. 15): no actuator-normalized
+        # D^-1 weighting here. (That normalization belongs to the project's
+        # own rebuttal-specified CBF, testing_utils.py -- it isn't part of
+        # ATOM-CBF and was wrongly ported over here.)
+        objective = cp.Minimize(
+            0.5 * cp.sum_squares(self._control - self._nominal_param)
+            + self.slack_penalty * cp.square(self._slack)
+        )
+        self._problem = cp.Problem(objective, constraints)
 
     @classmethod
     def from_checkpoint(
@@ -509,54 +573,36 @@ class ATOMCBFController:
         lg_h: np.ndarray,
         epsilon_adapt: float,
     ) -> tuple[np.ndarray, str, float, float | None]:
-        if cp is None:
+        if cp is None or self._problem is None:
             raise RuntimeError(
                 "ATOM-CBF requires cvxpy. Install the project requirements first."
             )
 
-        control = cp.Variable(2)
-        slack = cp.Variable(nonneg=True)
-        fixed_lipschitz = (
-            self.lipschitz["L_Lfh"] + self.lipschitz["L_kappah"]
-        )
-        robust_margin = epsilon_adapt * (
-            fixed_lipschitz
-            + self.lipschitz["L_Lgh"] * cp.norm(control, 2)
-        )
-        constraints = [
-            lg_h @ control - robust_margin
-            >= -self.cbf_gain * barrier - slack,
-            control[0] >= 0.0,
-            control[0] <= self.max_movement_speed,
-            control[1] >= -self.max_turn_speed,
-            control[1] <= self.max_turn_speed,
-        ]
-        objective = cp.Minimize(
-            0.5 * cp.sum_squares(control - nominal_physical)
-            + self.slack_penalty * cp.square(slack)
-        )
-        problem = cp.Problem(objective, constraints)
+        self._nominal_param.value = np.asarray(nominal_physical, dtype=np.float64)
+        self._barrier_param.value = float(barrier)
+        self._lg_h_param.value = np.asarray(lg_h, dtype=np.float64)
+        self._epsilon_param.value = max(0.0, float(epsilon_adapt))
 
         attempted: list[str] = []
         for solver in (self.solver, "CLARABEL", "SCS"):
-            if solver in attempted or solver not in cp.installed_solvers():
+            if solver in attempted or solver not in self._installed_solvers:
                 continue
             attempted.append(solver)
             try:
-                problem.solve(solver=solver, warm_start=True, verbose=False)
+                self._problem.solve(solver=solver, warm_start=True, verbose=False)
             except cp.error.SolverError:
                 continue
-            if problem.status in (cp.OPTIMAL, cp.OPTIMAL_INACCURATE):
-                value = np.asarray(control.value, dtype=np.float64).reshape(2)
+            if self._problem.status in (cp.OPTIMAL, cp.OPTIMAL_INACCURATE):
+                value = np.asarray(self._control.value, dtype=np.float64).reshape(2)
                 value[0] = np.clip(value[0], 0.0, self.max_movement_speed)
                 value[1] = np.clip(
                     value[1], -self.max_turn_speed, self.max_turn_speed
                 )
                 return (
                     value,
-                    str(problem.status),
-                    float(max(0.0, slack.value)),
-                    float(problem.value),
+                    str(self._problem.status),
+                    float(max(0.0, self._slack.value)),
+                    float(self._problem.value),
                 )
 
         fallback = np.array([0.0, nominal_physical[1]], dtype=np.float64)

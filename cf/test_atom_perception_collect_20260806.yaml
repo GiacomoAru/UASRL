@@ -1,0 +1,47 @@
+# ID data collection for ATOM-CBF perception retraining (more episodes than
+# the original 20-file / 67-episode set). Nominal controller (no cbf/uf/atom)
+# so episodes terminate at normal speed, not the ~2000-step ATOM crawl.
+# Corrected procedural build (0608, post spawn/reset fixes), matches the
+# obstacles config used for the original 20 files.
+#
+# Dated/frozen config, created 2026-08-06.
+test_name: "ATOM_PERCEPTION_COLLECT"
+machine_name: "personal"
+seed: 90001
+base_time: 1765457030
+
+train_config_path: "./cf/train_SAC.yaml"
+
+policy_names:
+  - NEW_TR_SIMPLE_EASY_5804798      # SAC
+  - NEW_TR_LAGSACSIMPLE_5832028     # LagSAC
+actor_std: 0.95
+
+obstacles_config_path: "./cf/obstacles_simple_safw.yaml"
+
+# 9x build: ~3-4x faster wall-clock throughput than 1x (measured this
+# session), same code path (test_multi.py already loops over agent ids
+# generically, no changes needed).
+build_path: "./unity_build/9xlimotest_0608_wind/UASRL.exe"
+agent_config_path: "./cf/agent_test_sfg.yaml"
+headless: true
+worker_id: 0
+decision_frame_period: 5
+send_debug_action: false
+
+total_episodes: 500
+episode_queue_length: 18
+accumulate_data: true
+
+cbf: false
+uf: false
+atom_cbf: false
+
+ut: 0.75
+ue_path: "./unc_models/"
+ue_action_type: "sample"
+
+cuda: 0
+torch_deterministic: true
+metrics_log_interval: 5
+save_path: "./results/"

@@ -21,14 +21,16 @@ actor_std: 0.95
 
 obstacles_config_path: "./cf/obstacles_ood1.yaml"
 
-build_path: "./unity_build/1xlimotestcw_0608_wind/UASRL.exe"
+build_path: "./unity_build/9xlimotestcw_0608_wind/UASRL.exe"
 agent_config_path: "./cf/agent_test_sfg.yaml"
-headless: false
+headless: true
 worker_id: 0
 decision_frame_period: 5
 send_debug_action: false
 
-total_episodes: 2000
+# TEMPORARILY 100 (2026-08-07): preliminary-only run, pending the FOV-edge
+# phi_cal fix (see follow-up task). Restore to 2000 before the definitive run.
+total_episodes: 100
 episode_queue_length: 18
 accumulate_data: true
 

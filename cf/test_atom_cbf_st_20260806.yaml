@@ -33,7 +33,7 @@ obstacles_config_path: "./cf/obstacles_simple_safw.yaml"
 
 build_path: "./unity_build/1xlimoteststatic_0608_wind/UASRL.exe"
 agent_config_path: "./cf/agent_test_sfg.yaml"
-headless: false
+headless: true
 worker_id: 0
 decision_frame_period: 5
 send_debug_action: false
@@ -41,8 +41,11 @@ send_debug_action: false
 # CODEX_HANDOFF.md / REBUTTAL_CHECKLIST.md's 250 static episodes are per
 # sub-scene (angolo/curva), and the static build carries both in one run
 # (split later via global_avg_dist_obstacle, as in data_analysis_2.ipynb).
-# So the raw run here must be 500, then filtered/split like the notebooks.
-total_episodes: 500
+# So the raw run should be 500 for the definitive run, then filtered/split
+# like the notebooks. TEMPORARILY set to 100 (2026-08-07): preliminary-only,
+# pending the FOV-edge phi_cal fix (see follow-up task); restore to 500
+# before the run whose numbers go in the paper.
+total_episodes: 100
 episode_queue_length: 18
 accumulate_data: true
 

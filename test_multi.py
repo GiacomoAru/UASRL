@@ -21,6 +21,7 @@ from training_utils import *
 from testing_utils import *
 from uncertainty_utils import *
 from atom_cbf import ATOMCBFController
+from mppi import MPPILocalPlanner
 
 # [markdown]
 #  Testing Function
@@ -38,7 +39,8 @@ def test(env,
          unc_ensamble,
          unc_enamble_norm_stats,
          atom_controller,
-         
+         mppi_planner_kwargs,
+
          BEHAVIOUR_NAME,
          STATE_SIZE,
          RAYCAST_SIZE,
@@ -47,7 +49,12 @@ def test(env,
         ):
 
     print('Start testing...')
-    
+
+    # Per-agent MPPI planners (stateful: warm-started control sequence).
+    # Agent ids are reused across episodes, so each planner is reset (not
+    # recreated) when a new episode starts for that id.
+    mppi_states = {}
+
     print('Applying Unity settings from config...')
     apply_unity_settings(param_channel, agent_config, 'ag_')
     apply_unity_settings(param_channel, obstacles_config, 'obs_')
@@ -151,6 +158,10 @@ def test(env,
                     if cumulative_obs[id][1] is None:
                         cumulative_obs[id][1] = actual_obs
                         corrected_obs = actual_obs
+                        if args.mppi_planner:
+                            # New episode for this agent id: fresh planner
+                            # (ids are reused across episodes).
+                            mppi_states[id] = MPPILocalPlanner(**mppi_planner_kwargs)
                     else:
                         p1 = cumulative_obs[id][1][RAYCAST_SIZE:RAYCAST_SIZE*STACK_NUMBER]
                         p2 = cumulative_obs[id][1][RAYCAST_SIZE*STACK_NUMBER + STATE_SIZE:RAYCAST_SIZE*STACK_NUMBER + STATE_SIZE*STACK_NUMBER]
@@ -162,10 +173,25 @@ def test(env,
                             actual_obs[-STATE_SIZE:]]
                             )
                         
-                    # Policy action from actor
+                    # Nominal action: either the RL actor, or MPPI acting as
+                    # its own standalone controller (replaces the actor
+                    # entirely -- same local-only inputs, no map/global state).
                     prev_time = time.time()
-                    action_torch, _, _, action_mean, action_std = actor.get_action(torch.tensor(corrected_obs, dtype=torch.float32, device=DEVICE).unsqueeze(0), args.actor_std)
-                    action = action_torch[0].detach().cpu().numpy()
+                    action_mean = action_std = None
+                    if args.mppi_planner:
+                        ray_obs = actual_obs[RAYCAST_SIZE*(STACK_NUMBER - 1):RAYCAST_SIZE*STACK_NUMBER]
+                        state = actual_obs[-STATE_SIZE:]
+                        mppi_result = mppi_states[id].plan(
+                            ray_obs,
+                            forward_speed_norm=state[0],
+                            angular_speed_norm=state[2],
+                            distance_to_goal=state[3] * 10.0,
+                            angle_to_goal_rad=math.radians(state[4] * 180.0),
+                        )
+                        action = mppi_result.action
+                    else:
+                        action_torch, _, _, action_mean, action_std = actor.get_action(torch.tensor(corrected_obs, dtype=torch.float32, device=DEVICE).unsqueeze(0), args.actor_std)
+                        action = action_torch[0].detach().cpu().numpy()
                     testing_stats['policy_time'].update(time.time() - prev_time)
                     
                     if args.uf: 
@@ -403,6 +429,13 @@ if args.atom_cbf and args.uf:
     raise ValueError('The standalone ATOM-CBF baseline requires uf=false')
 if args.atom_cbf and not args.atom_checkpoint_path:
     raise ValueError('atom_checkpoint_path is required when atom_cbf=true')
+if not hasattr(args, 'mppi_planner'):
+    args.mppi_planner = False
+if args.mppi_planner and (args.atom_cbf or args.cbf or args.uf):
+    raise ValueError(
+        'MPPI replaces the nominal controller entirely; it cannot be '
+        'combined with cbf/atom_cbf/uf'
+    )
 train_config = parse_config_file(args.train_config_path)
 other_config = parse_config_file(train_config["other_config_path"])
 agent_config = parse_config_file(args.agent_config_path)
@@ -494,7 +527,20 @@ for b_path in args.build_path:
             )
         else:
             atom_controller = None
-        
+
+        if args.mppi_planner:
+            mppi_planner_kwargs = dict(
+                ray_length=other_config['raycast_length'],
+                ray_angles=generate_angles_rad(
+                    RAY_PER_DIRECTION,
+                    other_config.get('raycast_max_degrees', 90),
+                ),
+                max_movement_speed=agent_config['max_movement_speed'],
+                max_turn_speed_degrees=agent_config['max_turn_speed'],
+            )
+        else:
+            mppi_planner_kwargs = None
+
         if type(args.policy_names) == str:
             args.policy_names = [args.policy_names]
         for p_name in args.policy_names:
@@ -563,7 +609,8 @@ for b_path in args.build_path:
                     ue,
                     ue_norm,
                     atom_controller,
-                    
+                    mppi_planner_kwargs,
+
                     BEHAVIOUR_NAME,
                     STATE_SIZE,
                     RAYCAST_SIZE,

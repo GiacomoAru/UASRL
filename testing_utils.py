@@ -166,18 +166,26 @@ def cbf_velocity_filter_qp(
     d_safe: float = 0.5,
     alpha: float = 5.0,
     d_safe_threshold_mult: float = 3.0,
+    sensor_offset: float = 0.10,
     max_movement_speed: float | None = None,
     max_turn_speed: float | None = None,
     debug: bool = False
 ) -> tuple[float, float]:
     """
-    Apply a Control Barrier Function (CBF) quadratic program filter 
+    Apply a Control Barrier Function (CBF) quadratic program filter
     to enforce safety constraints on velocity commands.
 
-    Given nominal linear and angular velocities, along with LIDAR 
-    ray distances and angles, this function formulates and solves 
-    a quadratic program (QP) that minimally modifies the commands 
+    Given nominal linear and angular velocities, along with LIDAR
+    ray distances and angles, this function formulates and solves
+    a quadratic program (QP) that minimally modifies the commands
     to ensure obstacles remain outside a safe distance.
+
+    Matches the offset-control-point barrier in the rebuttal: rays are taken
+    relative to a control point `ell` ahead of the robot center (coincident
+    with the range-sensor origin), h_i = x_i^2 + y_i^2 - d_safe^2, and
+    d/dt h_i = -2*x_i*v - 2*ell*y_i*omega, which is what makes omega enter
+    the barrier at first order (ell=0 recovers the center-distance barrier,
+    where steering only enters at higher order).
 
     Parameters
     ----------
@@ -194,15 +202,19 @@ def cbf_velocity_filter_qp(
     alpha : float, optional
         CBF relaxation parameter controlling constraint aggressiveness (default is 5.0).
     d_safe_threshold_mult : float, optional
-        Multiplier on `d_safe` that defines the maximum distance at which 
+        Multiplier on `d_safe` that defines the maximum distance at which
         obstacles are considered in the constraints (default is 3.0).
+    sensor_offset : float, optional
+        Longitudinal offset `ell` (meters) of the control point / ray-sensor
+        origin ahead of the robot center (default 0.10, the simulation value
+        used in the rebuttal; the physical platform uses its own extrinsics).
     debug : bool, optional
         If True, OSQP solver messages are shown and debug information is printed (default is False).
 
     Returns
     -------
     tuple of float
-        A tuple (v_safe, omega_safe) representing the filtered forward 
+        A tuple (v_safe, omega_safe) representing the filtered forward
         and angular velocities that satisfy the CBF constraints.
     """
 
@@ -217,6 +229,8 @@ def cbf_velocity_filter_qp(
         raise ValueError("ray distances and angles must be finite")
     if d_safe <= 0 or alpha <= 0 or d_safe_threshold_mult <= 0:
         raise ValueError("d_safe, alpha and d_safe_threshold_mult must be positive")
+    if sensor_offset < 0:
+        raise ValueError("sensor_offset must be nonnegative")
     if max_movement_speed is not None and max_movement_speed <= 0:
         raise ValueError("max_movement_speed must be positive")
     if max_turn_speed is not None and max_turn_speed <= 0:
@@ -229,10 +243,9 @@ def cbf_velocity_filter_qp(
         np.clip(float(omega_cmd), -max_omega, max_omega),
     ])
 
-    # Robot assumed at the origin of its local frame.
-    robot_state = np.array([0.0, 0.0, 0.0])
-    
-    # Convert lidar polar coordinates to Cartesian
+    # Rays are given in the sensor/control-point frame already (the control
+    # point c is ell ahead of the robot center and coincident with the
+    # range-sensor origin), so ray Cartesian coordinates are (x_i, y_i) as-is.
     obstacles = np.column_stack((
         ray_distances * np.cos(ray_angles),
         ray_distances * np.sin(ray_angles)
@@ -241,26 +254,18 @@ def cbf_velocity_filter_qp(
     max_considered_distance = d_safe * d_safe_threshold_mult
     A_list, b_list = [], []
 
-    for obs in obstacles:
-        delta = robot_state[:2] - obs
-        dist = np.linalg.norm(delta)
+    for x_i, y_i in obstacles:
+        dist = math.hypot(x_i, y_i)
 
         # Skip obstacles too far to be relevant
         if dist > max_considered_distance:
             continue
 
-        # Barrier function h = distance^2 - d_safe^2
-        h = dist**2 - d_safe**2
-        _, _, theta = robot_state
-
-        # Derivatives of h wrt control inputs
-        dh_dv = 2 * (delta[0] * np.cos(theta) + delta[1] * np.sin(theta))
-        dh_domega = 2 * (delta[0] * -np.sin(theta) + delta[1] * np.cos(theta))
-
-        # Standard CBF inequality in absolute controls:
-        #     dh/du * u + alpha*h >= 0
-        # <=> -dh/du * u <= alpha*h
-        a_i = -np.array([dh_dv, dh_domega])
+        # Barrier h_i = x_i^2 + y_i^2 - d_safe^2. For the control point
+        # offset ell ahead of the robot, d/dt h_i = -2*x_i*v - 2*ell*y_i*omega,
+        # so the standard condition d/dt h_i + alpha*h_i >= 0 becomes:
+        h = x_i**2 + y_i**2 - d_safe**2
+        a_i = np.array([2.0 * x_i, 2.0 * sensor_offset * y_i])
         b_i = alpha * h
 
         A_list.append(a_i)
@@ -287,9 +292,14 @@ def cbf_velocity_filter_qp(
     l_full = np.hstack([l, l_controls])
     u_full = np.hstack([u, u_controls])
 
-    # Quadratic cost: minimize ||u - u_nominal||^2.
-    P = sp.csc_matrix(np.eye(2) * 2.0)
-    q = -2.0 * nominal_u
+    # Quadratic cost: minimize ||D^-1(u - u_nominal)||^2, D=diag(v_max, omega_max),
+    # so deviations on the two actuators are weighted by their own limits
+    # rather than compared in raw m/s vs rad/s units.
+    v_scale = max_v if np.isfinite(max_v) else 1.0
+    omega_scale = max_omega if np.isfinite(max_omega) else 1.0
+    d_inv_sq = np.array([1.0 / v_scale**2, 1.0 / omega_scale**2])
+    P = sp.csc_matrix(np.diag(2.0 * d_inv_sq))
+    q = -2.0 * d_inv_sq * nominal_u
 
     # Solve QP
     prob = osqp.OSQP()
@@ -310,14 +320,15 @@ def cbf_velocity_filter_qp(
     return float(v_safe), float(omega_safe)
 
 def CBF_from_obs(ray_obs, action,
-                 
-                 ray_original_lenght, 
+
+                 ray_original_lenght,
                  max_movement_speed,
                  max_turn_speed,
-                 
+
                  d_safe, alpha, d_safe_mul,
-                 
-                 precomputed_angles_rad):
+
+                 precomputed_angles_rad,
+                 sensor_offset=0.10):
  
     if ray_original_lenght <= 0 or max_movement_speed <= 0 or max_turn_speed <= 0:
         raise ValueError("ray length and movement limits must be positive")
@@ -345,6 +356,7 @@ def CBF_from_obs(ray_obs, action,
         d_safe=d_safe,
         alpha=alpha,
         d_safe_threshold_mult=d_safe_mul,
+        sensor_offset=sensor_offset,
         max_movement_speed=max_movement_speed,
         max_turn_speed=max_turn_speed_rad,
         debug=False

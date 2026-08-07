@@ -1,0 +1,57 @@
+# ATOM-CBF standalone baseline - ID (procedural, plain build, obstacles_simple_safw).
+# Author's own question (2026-08-07): validate ATOM on ID *before* trusting
+# the OOD1/OOD3/ST comparison numbers, same discipline PROSSIME_MODIFICHE_ICRA.md
+# already prescribes ("calibrazione... scelta esclusivamente su dati ID e poi
+# fissata prima dei test OOD") and that we skipped by jumping straight to
+# OOD1/OOD3/ST. Same obstacles config and build family used to collect the
+# perception-network training data (test_atom_perception_collect_20260806.yaml),
+# so a bad result here isolates an ATOM-CBF problem from "OOD is just hard".
+#
+# Dated/frozen config, created 2026-08-07.
+test_name: "ATOM_CBF_ID_20260807"
+machine_name: "personal"
+seed: 78789
+base_time: 1765457030
+
+train_config_path: "./cf/train_SAC.yaml"
+
+policy_names:
+  - NEW_TR_SIMPLE_EASY_5804798      # SAC
+  - NEW_TR_SIMPLEWP_EASY_5841772    # SACP
+  - NEW_TR_LAGSACSIMPLE_5832028     # LagSAC
+actor_std: 0.95
+
+obstacles_config_path: "./cf/obstacles_simple_safw.yaml"
+
+build_path: "./unity_build/9xlimotest_0608_wind/UASRL.exe"
+agent_config_path: "./cf/agent_test_sfg.yaml"
+headless: true
+worker_id: 0
+decision_frame_period: 5
+send_debug_action: false
+
+# Preliminary scale (2026-08-07), matches the OOD1/OOD3/ST preliminary runs.
+total_episodes: 100
+episode_queue_length: 18
+accumulate_data: true
+
+cbf: false
+uf: false
+
+atom_cbf: true
+atom_checkpoint_path: "./models/atom_cbf/atom_cbf_id.pt"
+atom_solver: "CLARABEL"
+
+d_safe: 0.25
+d_safe_mul: 3.0
+alpha: 1.5
+cbf_min_forward_velocity: 0.05
+
+ut: 0.75
+ue_path: "./unc_models/"
+ue_action_type: "sample"
+
+cuda: 0
+torch_deterministic: true
+metrics_log_interval: 25
+save_path: "./results/"
