@@ -295,9 +295,15 @@ def test(env,
                     (args.cbf or args.atom_cbf)
                     and np.linalg.norm(cbf_action - policy_action) > 1e-06
                 )
-                # Final action selection (UF + CBF logic)
+                # Final action selection (UF + CBF logic).
+                # atom_cbf + uf=true: UF gates WHEN ATOM-CBF engages (same
+                # gating pattern as the normal CBF below), instead of
+                # ATOM-CBF always overriding the policy unconditionally.
                 final_action = policy_action
-                if args.atom_cbf:
+                if args.atom_cbf and args.uf:
+                    if cumulative_obs[id][4] and cbf_activation:
+                        final_action = cbf_action
+                elif args.atom_cbf:
                     final_action = cbf_action
                 elif cumulative_obs[id][4] and cbf_activation:
                     final_action = cbf_action
@@ -425,12 +431,27 @@ if not hasattr(args, 'atom_solver'):
     args.atom_solver = 'CLARABEL'
 if args.atom_cbf and args.cbf:
     raise ValueError('ATOM-CBF and the existing CBF cannot both control the robot')
-if args.atom_cbf and args.uf:
-    raise ValueError('The standalone ATOM-CBF baseline requires uf=false')
+# uf=true + atom_cbf=true is allowed on purpose: UF gates WHEN ATOM-CBF
+# engages, instead of ATOM-CBF running unconditionally ("vanilla" always-on).
+# See the final-action selection below for the actual gating logic.
 if args.atom_cbf and not args.atom_checkpoint_path:
     raise ValueError('atom_checkpoint_path is required when atom_cbf=true')
 if not hasattr(args, 'mppi_planner'):
     args.mppi_planner = False
+for _mppi_key, _mppi_default in [
+    ('mppi_horizon', 15),
+    ('mppi_num_samples', 512),
+    ('mppi_dt', 0.1),
+    ('mppi_temperature', 0.2),
+    ('mppi_obstacle_radius', 0.25),
+    ('mppi_w_goal', 4.0),
+    ('mppi_w_obstacle', 3.0),
+    ('mppi_w_smooth', 0.05),
+    ('mppi_collision_penalty', 400.0),
+    ('mppi_seed', 0),
+]:
+    if not hasattr(args, _mppi_key):
+        setattr(args, _mppi_key, _mppi_default)
 if args.mppi_planner and (args.atom_cbf or args.cbf or args.uf):
     raise ValueError(
         'MPPI replaces the nominal controller entirely; it cannot be '
@@ -537,6 +558,16 @@ for b_path in args.build_path:
                 ),
                 max_movement_speed=agent_config['max_movement_speed'],
                 max_turn_speed_degrees=agent_config['max_turn_speed'],
+                horizon=args.mppi_horizon,
+                num_samples=args.mppi_num_samples,
+                dt=args.mppi_dt,
+                temperature=args.mppi_temperature,
+                obstacle_radius=args.mppi_obstacle_radius,
+                w_goal=args.mppi_w_goal,
+                w_obstacle=args.mppi_w_obstacle,
+                w_smooth=args.mppi_w_smooth,
+                collision_penalty=args.mppi_collision_penalty,
+                seed=args.mppi_seed,
             )
         else:
             mppi_planner_kwargs = None

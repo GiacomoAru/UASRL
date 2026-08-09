@@ -1,0 +1,62 @@
+# MPPI baseline - OOD1 (procedural, "cw" build). New navigation baseline,
+# replaces the RL policy entirely (mapless local planner, same local-only
+# inputs as the policy: ray scan + kinematic state + relative goal).
+# Hyperparameters frozen after an ID-only calibration sweep (2026-08-07,
+# results/mppi_calib_*): default MPPILocalPlanner values won the sweep
+# (success_nc 62.5%, tied with obstacle_radius weight variants; every other
+# tested variant was worse) -- kept as-is, nothing to override.
+# policy_names is a placeholder for the weight-loading code path only;
+# MPPI ignores the loaded actor entirely.
+# Same seed as the ATOM-CBF/CBF baselines (78789) so episode i uses the same
+# map as episode i in those runs -- MPPI is evaluated as a new baseline on
+# the paper's existing benchmark, not as a new filter.
+#
+# Dated/frozen config, created 2026-08-07.
+test_name: "MPPI_OOD1_20260807"
+machine_name: "personal"
+seed: 78789
+base_time: 1765457030
+
+train_config_path: "./cf/train_SAC.yaml"
+
+policy_names:
+  - NEW_TR_SIMPLE_EASY_5804798      # placeholder, unused by MPPI
+actor_std: 0.95
+
+obstacles_config_path: "./cf/obstacles_ood1.yaml"
+
+build_path: "./unity_build/9xlimotestcw_0608_wind/UASRL.exe"
+agent_config_path: "./cf/agent_test_sfg.yaml"
+headless: true
+worker_id: 0
+decision_frame_period: 5
+send_debug_action: false
+
+total_episodes: 300
+episode_queue_length: 20
+accumulate_data: true
+
+cbf: false
+uf: false
+atom_cbf: false
+
+mppi_planner: true
+mppi_horizon: 15
+mppi_num_samples: 512
+mppi_dt: 0.1
+mppi_temperature: 0.2
+mppi_obstacle_radius: 0.25
+mppi_w_goal: 4.0
+mppi_w_obstacle: 3.0
+mppi_w_smooth: 0.05
+mppi_collision_penalty: 400.0
+mppi_seed: 0
+
+ut: 0.75
+ue_path: "./unc_models/"
+ue_action_type: "sample"
+
+cuda: 0
+torch_deterministic: true
+metrics_log_interval: 25
+save_path: "./results/"

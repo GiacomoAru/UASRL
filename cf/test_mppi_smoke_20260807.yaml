@@ -1,0 +1,44 @@
+# MPPI local-planner smoke test. Same ID map/build already validated for
+# the nominal controller (test_atom_perception_collect_20260806.yaml),
+# so a bad result here points at the MPPI integration, not the environment.
+# policy_names is just a placeholder for the weight-loading code path --
+# MPPI replaces the actor's action entirely, the loaded weights are unused.
+#
+# Dated/frozen config, created 2026-08-07.
+test_name: "MPPI_SMOKE"
+machine_name: "personal"
+seed: 90001
+base_time: 1765457030
+
+train_config_path: "./cf/train_SAC.yaml"
+
+policy_names:
+  - NEW_TR_SIMPLE_EASY_5804798
+actor_std: 0.95
+
+obstacles_config_path: "./cf/obstacles_simple_safw.yaml"
+
+build_path: "./unity_build/9xlimotest_0608_wind/UASRL.exe"
+agent_config_path: "./cf/agent_test_sfg.yaml"
+headless: true
+worker_id: 0
+decision_frame_period: 5
+send_debug_action: false
+
+total_episodes: 10
+episode_queue_length: 9
+accumulate_data: true
+
+cbf: false
+uf: false
+atom_cbf: false
+mppi_planner: true
+
+ut: 0.75
+ue_path: "./unc_models/"
+ue_action_type: "sample"
+
+cuda: 0
+torch_deterministic: true
+metrics_log_interval: 5
+save_path: "./results/"

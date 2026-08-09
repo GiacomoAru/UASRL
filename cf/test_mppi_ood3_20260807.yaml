@@ -1,0 +1,52 @@
+# MPPI baseline - OOD3 (procedural, "cw" build). See test_mppi_ood1_20260807.yaml
+# for full rationale (hyperparameters, seed policy, placeholder policy_names).
+#
+# Dated/frozen config, created 2026-08-07.
+test_name: "MPPI_OOD3_20260807"
+machine_name: "personal"
+seed: 78789
+base_time: 1765457030
+
+train_config_path: "./cf/train_SAC.yaml"
+
+policy_names:
+  - NEW_TR_SIMPLE_EASY_5804798      # placeholder, unused by MPPI
+actor_std: 0.95
+
+obstacles_config_path: "./cf/obstacles_ood3.yaml"
+
+build_path: "./unity_build/9xlimotestcw_0608_wind/UASRL.exe"
+agent_config_path: "./cf/agent_test_sfg.yaml"
+headless: true
+worker_id: 0
+decision_frame_period: 5
+send_debug_action: false
+
+total_episodes: 300
+episode_queue_length: 20
+accumulate_data: true
+
+cbf: false
+uf: false
+atom_cbf: false
+
+mppi_planner: true
+mppi_horizon: 15
+mppi_num_samples: 512
+mppi_dt: 0.1
+mppi_temperature: 0.2
+mppi_obstacle_radius: 0.25
+mppi_w_goal: 4.0
+mppi_w_obstacle: 3.0
+mppi_w_smooth: 0.05
+mppi_collision_penalty: 400.0
+mppi_seed: 0
+
+ut: 0.75
+ue_path: "./unc_models/"
+ue_action_type: "sample"
+
+cuda: 0
+torch_deterministic: true
+metrics_log_interval: 25
+save_path: "./results/"

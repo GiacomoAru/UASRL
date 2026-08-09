@@ -1,0 +1,50 @@
+# UF+ATOM-CBF full-scale test, tau=0.90 (the promising threshold from the
+# N=30 exploratory runs: 56.7% success / 3.3% collision / 40% timeout vs
+# tau=0.80's 26.7/3.3/70.0). All 3 base policies, matching the scale of the
+# ATOM-only big run (results/atom_big_ood1). Same OOD1 map/build/seed.
+test_name: "UF_ATOM_TH090_OOD1"
+machine_name: "personal"
+seed: 78789
+base_time: 1765457030
+
+train_config_path: "./cf/train_SAC.yaml"
+
+policy_names:
+  - NEW_TR_SIMPLE_EASY_5804798      # SAC
+  - NEW_TR_SIMPLEWP_EASY_5841772    # SACP
+  - NEW_TR_LAGSACSIMPLE_5832028     # LagSAC
+actor_std: 0.95
+
+obstacles_config_path: "./cf/obstacles_ood1.yaml"
+
+build_path: "./unity_build/9xlimotestcw_0608_wind/UASRL.exe"
+agent_config_path: "./cf/agent_test_sfg.yaml"
+headless: true
+worker_id: 0
+decision_frame_period: 5
+send_debug_action: false
+
+total_episodes: 100
+episode_queue_length: 18
+accumulate_data: true
+
+cbf: false
+uf: true
+
+atom_cbf: true
+atom_checkpoint_path: "./models/atom_cbf/atom_cbf_id.pt"
+atom_solver: "CLARABEL"
+
+d_safe: 0.25
+d_safe_mul: 3.0
+alpha: 1.5
+cbf_min_forward_velocity: 0.05
+
+ut: 0.90
+ue_path: "./unc_models/"
+ue_action_type: "sample"
+
+cuda: 0
+torch_deterministic: true
+metrics_log_interval: 25
+save_path: "./results/"

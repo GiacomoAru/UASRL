@@ -1,0 +1,47 @@
+# UF+ATOM-CBF reduced-scale test, tau=0.90 (standard operating point,
+# matches every other UF config this project uses). Exploratory: N=30,
+# not final numbers. Same OOD1 map/build/seed as the ATOM-only/MPPI runs.
+test_name: "UF_ATOM_TH090"
+machine_name: "personal"
+seed: 78789
+base_time: 1765457030
+
+train_config_path: "./cf/train_SAC.yaml"
+
+policy_names:
+  - NEW_TR_SIMPLE_EASY_5804798      # SAC
+actor_std: 0.95
+
+obstacles_config_path: "./cf/obstacles_ood1.yaml"
+
+build_path: "./unity_build/9xlimotestcw_0608_wind/UASRL.exe"
+agent_config_path: "./cf/agent_test_sfg.yaml"
+headless: true
+worker_id: 0
+decision_frame_period: 5
+send_debug_action: false
+
+total_episodes: 30
+episode_queue_length: 15
+accumulate_data: true
+
+cbf: false
+uf: true
+
+atom_cbf: true
+atom_checkpoint_path: "./models/atom_cbf/atom_cbf_id.pt"
+atom_solver: "CLARABEL"
+
+d_safe: 0.25
+d_safe_mul: 3.0
+alpha: 1.5
+cbf_min_forward_velocity: 0.05
+
+ut: 0.90
+ue_path: "./unc_models/"
+ue_action_type: "sample"
+
+cuda: 0
+torch_deterministic: true
+metrics_log_interval: 10
+save_path: "./results/"
